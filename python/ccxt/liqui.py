@@ -21,7 +21,6 @@ from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import DDoSProtection
 from ccxt.base.errors import ExchangeNotAvailable
 
-
 class liqui (Exchange):
 
     def describe(self):
@@ -91,7 +90,7 @@ class liqui (Exchange):
                 },
             },
             'commonCurrencies': {
-                'DSH': 'DASH',
+#                'DSH': 'DASH',
             },
             'exceptions': {
                 '803': InvalidOrder,  # "Count could not be less than 0.001."(selling below minAmount)
@@ -122,7 +121,7 @@ class liqui (Exchange):
         }
 
     def get_base_quote_from_market_id(self, id):
-        uppercase = id.upper()
+        uppercase = id#.upper()
         base, quote = uppercase.split('_')
         base = self.common_currency_code(base)
         quote = self.common_currency_code(quote)
@@ -182,7 +181,7 @@ class liqui (Exchange):
         currencies = list(funds.keys())
         for c in range(0, len(currencies)):
             currency = currencies[c]
-            uppercase = currency.upper()
+            uppercase = currency#.upper()
             uppercase = self.common_currency_code(uppercase)
             total = None
             used = None
