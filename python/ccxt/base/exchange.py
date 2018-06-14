@@ -190,9 +190,9 @@ class Exchange(object):
     last_response_headers = None
 
     commonCurrencies = {
-        'XBT': 'BTC',
-        'BCC': 'BCH',
-        'DRK': 'DASH',
+#        'XBT': 'BTC',
+#        'BCC': 'BCH',
+#        'DRK': 'DASH',
     }
 
     def __init__(self, config={}):
