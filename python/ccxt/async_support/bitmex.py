@@ -152,14 +152,14 @@ class bitmex (Exchange):
             market = markets[p]
             active = (market['state'] != 'Unlisted')
             id = market['symbol']
-            baseId = market['underlying']
-            quoteId = market['quoteCurrency']
+            base = market['underlying']
+            quote = market['quoteCurrency']
             type = None
             future = False
             prediction = False
-            basequote = baseId + quoteId
-            base = self.common_currency_code(baseId)
-            quote = self.common_currency_code(quoteId)
+            basequote = base + quote
+            base = self.common_currency_code(base)
+            quote = self.common_currency_code(quote)
             swap = (id == basequote)
             symbol = id
             if swap:
@@ -184,8 +184,6 @@ class bitmex (Exchange):
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
-                'baseId': baseId,
-                'quoteId': quoteId,
                 'active': active,
                 'precision': precision,
                 'limits': {

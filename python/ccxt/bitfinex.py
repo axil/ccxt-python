@@ -261,24 +261,17 @@ class bitfinex (Exchange):
                 },
             },
             'commonCurrencies': {
-                'ABS': 'ABYSS',
-                'AIO': 'AION',
-                'ATM': 'ATMI',
+                'ATM': 'ATMI',  # Bitfinex uses ATM instead of the official ATMI
                 'BCC': 'CST_BCC',
                 'BCU': 'CST_BCU',
                 'CTX': 'CTXC',
-                'DAD': 'DADI',
                 'DAT': 'DATA',
-                'DSH': 'DASH',
+                'DSH': 'DASH',  # Bitfinex names Dash as DSH, instead of DASH
                 'HOT': 'Hydro Protocol',
                 'IOS': 'IOST',
                 'IOT': 'IOTA',
-                'IQX': 'IQ',
-                'MIT': 'MITH',
                 'MNA': 'MANA',
-                'NCA': 'NCASH',
                 'ORS': 'ORS Group',  # conflict with Origin Sport  #3230
-                'POY': 'POLY',
                 'QSH': 'QASH',
                 'QTM': 'QTUM',
                 'SEE': 'SEER',

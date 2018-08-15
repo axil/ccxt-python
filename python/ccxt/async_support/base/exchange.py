@@ -2,7 +2,7 @@
 
 # -----------------------------------------------------------------------------
 
-__version__ = '1.17.126'
+__version__ = '1.17.99'
 
 # -----------------------------------------------------------------------------
 
@@ -15,7 +15,6 @@ import random
 import certifi
 import aiohttp
 import ssl
-import sys
 import yarl
 
 # -----------------------------------------------------------------------------
@@ -50,7 +49,12 @@ class Exchange(BaseExchange):
             self.asyncio_loop = config['asyncio_loop']
         self.asyncio_loop = self.asyncio_loop or asyncio.get_event_loop()
         self.own_session = 'session' not in config
-        self.open()
+        if self.own_session:
+            # Create our SSL context object with our CA cert file
+            context = ssl.create_default_context(cafile=certifi.where())
+            # Pass this SSL context to aiohttp and create a TCPConnector
+            connector = aiohttp.TCPConnector(ssl_context=context, loop=self.asyncio_loop)
+            self.session = aiohttp.ClientSession(loop=self.asyncio_loop, connector=connector)
         super(Exchange, self).__init__(config)
         self.init_rest_rate_limiter()
 
@@ -62,22 +66,6 @@ class Exchange(BaseExchange):
     def __del__(self):
         if self.session is not None:
             self.logger.warning(self.id + " requires to release all resources with an explicit call to the .close() coroutine. If you are creating the exchange instance from within your async coroutine, add exchange.close() to your code into a place when you're done with the exchange and don't need the exchange instance anymore (at the end of your async coroutine).")
-
-    if sys.version_info >= (3, 5):
-        async def __aenter__(self):
-            self.open()
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            await self.close()
-
-    def open(self):
-        if self.own_session and self.session is None:
-            # Create our SSL context object with our CA cert file
-            context = ssl.create_default_context(cafile=certifi.where())
-            # Pass this SSL context to aiohttp and create a TCPConnector
-            connector = aiohttp.TCPConnector(ssl_context=context, loop=self.asyncio_loop)
-            self.session = aiohttp.ClientSession(loop=self.asyncio_loop, connector=connector)
 
     async def close(self):
         if self.session is not None:

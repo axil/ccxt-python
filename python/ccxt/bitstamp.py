@@ -31,7 +31,7 @@ class bitstamp (Exchange):
             'has': {
                 'CORS': True,
                 'fetchDepositAddress': True,
-                'fetchOrder': 'emulated',
+                'fetchOrder': True,
                 'fetchOpenOrders': True,
                 'fetchMyTrades': True,
                 'withdraw': True,
