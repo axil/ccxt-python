@@ -4,16 +4,20 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.async.base.exchange import Exchange
+
+# -----------------------------------------------------------------------------
+
+try:
+    basestring  # Python 3
+except NameError:
+    basestring = str  # Python 2
 import math
 import json
 from ccxt.base.errors import ExchangeError
-from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import DDoSProtection
-from ccxt.base.errors import ExchangeNotAvailable
-from ccxt.base.errors import InvalidNonce
 
 
 class binance (Exchange):
@@ -37,7 +41,6 @@ class binance (Exchange):
                 'fetchOpenOrders': True,
                 'fetchClosedOrders': True,
                 'withdraw': True,
-                'fetchFundingFees': True,
             },
             'timeframes': {
                 '1m': '1m',
@@ -67,7 +70,6 @@ class binance (Exchange):
                     'v1': 'https://api.binance.com/api/v1',
                 },
                 'www': 'https://www.binance.com',
-                'referral': 'https://www.binance.com/?ref=10205187',
                 'doc': 'https://github.com/binance-exchange/binance-official-api-docs/blob/master/rest-api.md',
                 'fees': [
                     'https://binance.zendesk.com/hc/en-us/articles/115000429332',
@@ -90,7 +92,6 @@ class binance (Exchange):
                         'depositAddress',
                         'accountStatus',
                         'systemStatus',
-                        'withdrawFee',
                     ],
                 },
                 'v3': {
@@ -112,11 +113,7 @@ class binance (Exchange):
                         'ticker/allBookTickers',
                         'ticker/price',
                         'ticker/bookTicker',
-                        'exchangeInfo',
                     ],
-                    'put': ['userDataStream'],
-                    'post': ['userDataStream'],
-                    'delete': ['userDataStream'],
                 },
                 'private': {
                     'get': [
@@ -134,6 +131,11 @@ class binance (Exchange):
                         'order',
                     ],
                 },
+                'v1': {
+                    'put': ['userDataStream'],
+                    'post': ['userDataStream'],
+                    'delete': ['userDataStream'],
+                },
             },
             'fees': {
                 'trading': {
@@ -142,7 +144,6 @@ class binance (Exchange):
                     'taker': 0.001,
                     'maker': 0.001,
                 },
-                # should be deleted, these are outdated and inaccurate
                 'funding': {
                     'tierBased': False,
                     'percentage': False,
@@ -257,45 +258,78 @@ class binance (Exchange):
                         'ZEC': 0.005,
                         'ZRX': 5.7,
                     },
-                    'deposit': {},
+                    'deposit': {
+                        'ARK': 0,
+                        'AST': 0,
+                        'BCH': 0,
+                        'BNB': 0,
+                        'BNT': 0,
+                        'BQX': 0,
+                        'BTC': 0,
+                        'BTG': 0,
+                        'CTR': 0,
+                        'DASH': 0,
+                        'DNT': 0,
+                        'ENG': 0,
+                        'ENJ': 0,
+                        'EOS': 0,
+                        'ETC': 0,
+                        'ETH': 0,
+                        'EVX': 0,
+                        'FUN': 0,
+                        'GAS': 0,
+                        'HSR': 0,
+                        'ICN': 0,
+                        'IOTA': 0,
+                        'KNC': 0,
+                        'LINK': 0,
+                        'LRC': 0,
+                        'LTC': 0,
+                        'MCO': 0,
+                        'MDA': 0,
+                        'MOD': 0,
+                        'MTH': 0,
+                        'MTL': 0,
+                        'NEO': 0,
+                        'OAX': 0,
+                        'OMG': 0,
+                        'POWR': 0,
+                        'QTUM': 0,
+                        'REQ': 0,
+                        'SALT': 0,
+                        'SNGLS': 0,
+                        'SNM': 0,
+                        'SNT': 0,
+                        'STORJ': 0,
+                        'STRAT': 0,
+                        'SUB': 0,
+                        'TRX': 0,
+                        'USDT': 0,
+                        'VIB': 0,
+                        'WTC': 0,
+                        'XRP': 0,
+                        'XVG': 0,
+                        'YOYOW': 0,
+                        'ZRX': 0,
+                    },
                 },
-            },
-            'commonCurrencies': {
-                'YOYO': 'YOYOW',
-                'BCC': 'BCH',
-                'NANO': 'XRB',
             },
             # exchange-specific options
             'options': {
-                'defaultTimeInForce': 'GTC',  # 'GTC' = Good To Cancel(default), 'IOC' = Immediate Or Cancel
-                'defaultLimitOrderType': 'limit',  # or 'limit_maker'
-                'hasAlreadyAuthenticatedSuccessfully': False,
-                'warnOnFetchOpenOrdersWithoutSymbol': True,
                 'recvWindow': 5 * 1000,  # 5 sec, binance default
                 'timeDifference': 0,  # the difference between system clock and Binance clock
                 'adjustForTimeDifference': False,  # controls the adjustment logic upon instantiation
-                'parseOrderToPrecision': False,  # force amounts and costs in parseOrder to precision
-            },
-            'exceptions': {
-                '-1000': ExchangeNotAvailable,  # {"code":-1000,"msg":"An unknown error occured while processing the request."}
-                '-1013': InvalidOrder,  # createOrder -> 'invalid quantity'/'invalid price'/MIN_NOTIONAL
-                '-1021': InvalidNonce,  # 'your time is ahead of server'
-                '-1100': InvalidOrder,  # createOrder(symbol, 1, asdf) -> 'Illegal characters found in parameter 'price'
-                '-2010': InsufficientFunds,  # createOrder -> 'Account has insufficient balance for requested action.'
-                '-2011': OrderNotFound,  # cancelOrder(1, 'BTC/USDT') -> 'UNKNOWN_ORDER'
-                '-2013': OrderNotFound,  # fetchOrder(1, 'BTC/USDT') -> 'Order does not exist'
-                '-2014': AuthenticationError,  # {"code":-2014, "msg": "API-key format invalid."}
-                '-2015': AuthenticationError,  # "Invalid API-key, IP, or permissions for action."
             },
         })
 
-    def nonce(self):
-        return self.milliseconds() - self.options['timeDifference']
+    def milliseconds(self):
+        return super(binance, self).milliseconds() - self.options['timeDifference']
 
     async def load_time_difference(self):
+        before = self.milliseconds()
         response = await self.publicGetTime()
         after = self.milliseconds()
-        self.options['timeDifference'] = int(after - response['serverTime'])
+        self.options['timeDifference'] = int((before + after) / 2 - response['serverTime'])
         return self.options['timeDifference']
 
     async def fetch_markets(self):
@@ -355,16 +389,16 @@ class binance (Exchange):
                 filter = filters['PRICE_FILTER']
                 entry['precision']['price'] = self.precision_from_string(filter['tickSize'])
                 entry['limits']['price'] = {
-                    'min': self.safe_float(filter, 'minPrice'),
-                    'max': self.safe_float(filter, 'maxPrice'),
+                    'min': float(filter['minPrice']),
+                    'max': float(filter['maxPrice']),
                 }
             if 'LOT_SIZE' in filters:
                 filter = filters['LOT_SIZE']
                 entry['precision']['amount'] = self.precision_from_string(filter['stepSize'])
-                entry['lot'] = self.safe_float(filter, 'stepSize')  # lot size is deprecated as of 2018.02.06
+                entry['lot'] = float(filter['stepSize'])  # lot size is deprecated as of 2018.02.06
                 entry['limits']['amount'] = {
-                    'min': self.safe_float(filter, 'minQty'),
-                    'max': self.safe_float(filter, 'maxQty'),
+                    'min': float(filter['minQty']),
+                    'max': float(filter['maxQty']),
                 }
             if 'MIN_NOTIONAL' in filters:
                 entry['limits']['cost']['min'] = float(filters['MIN_NOTIONAL']['minNotional'])
@@ -414,20 +448,23 @@ class binance (Exchange):
         }
         if limit is not None:
             request['limit'] = limit  # default = maximum = 100
-        response = await self.publicGetDepth(self.extend(request, params))
-        orderbook = self.parse_order_book(response)
-        orderbook['nonce'] = self.safe_integer(response, 'lastUpdateId')
-        return orderbook
+        orderbook = await self.publicGetDepth(self.extend(request, params))
+        return self.parse_order_book(orderbook)
 
     def parse_ticker(self, ticker, market=None):
         timestamp = self.safe_integer(ticker, 'closeTime')
-        iso8601 = None if (timestamp is None) else self.iso8601(timestamp)
-        symbol = self.find_symbol(self.safe_string(ticker, 'symbol'), market)
-        last = self.safe_float(ticker, 'lastPrice')
+        if timestamp is None:
+            timestamp = self.milliseconds()
+        symbol = ticker['symbol']
+        if not market:
+            if symbol in self.markets_by_id:
+                market = self.markets_by_id[symbol]
+        if market:
+            symbol = market['symbol']
         return {
             'symbol': symbol,
             'timestamp': timestamp,
-            'datetime': iso8601,
+            'datetime': self.iso8601(timestamp),
             'high': self.safe_float(ticker, 'highPrice'),
             'low': self.safe_float(ticker, 'lowPrice'),
             'bid': self.safe_float(ticker, 'bidPrice'),
@@ -436,9 +473,9 @@ class binance (Exchange):
             'askVolume': self.safe_float(ticker, 'askQty'),
             'vwap': self.safe_float(ticker, 'weightedAvgPrice'),
             'open': self.safe_float(ticker, 'openPrice'),
-            'close': last,
-            'last': last,
-            'previousClose': self.safe_float(ticker, 'prevClosePrice'),  # previous day close
+            'close': self.safe_float(ticker, 'prevClosePrice'),
+            'first': None,
+            'last': self.safe_float(ticker, 'lastPrice'),
             'change': self.safe_float(ticker, 'priceChange'),
             'percentage': self.safe_float(ticker, 'priceChangePercent'),
             'average': None,
@@ -459,9 +496,19 @@ class binance (Exchange):
         tickers = []
         for i in range(0, len(rawTickers)):
             tickers.append(self.parse_ticker(rawTickers[i]))
-        return self.filter_by_array(tickers, 'symbol', symbols)
+        tickersBySymbol = self.index_by(tickers, 'symbol')
+        # return all of them if no symbols were passed in the first argument
+        if symbols is None:
+            return tickersBySymbol
+        # otherwise filter by symbol
+        result = {}
+        for i in range(0, len(symbols)):
+            symbol = symbols[i]
+            if symbol in tickersBySymbol:
+                result[symbol] = tickersBySymbol[symbol]
+        return result
 
-    async def fetch_bids_asks(self, symbols=None, params={}):
+    async def fetch_bid_asks(self, symbols=None, params={}):
         await self.load_markets()
         rawTickers = await self.publicGetTickerBookTicker(params)
         return self.parse_tickers(rawTickers, symbols)
@@ -488,10 +535,9 @@ class binance (Exchange):
             'symbol': market['id'],
             'interval': self.timeframes[timeframe],
         }
+        request['limit'] = limit if (limit) else 500  # default == max == 500
         if since is not None:
             request['startTime'] = since
-        if limit is not None:
-            request['limit'] = limit  # default == max == 500
         response = await self.publicGetKlines(self.extend(request, params))
         return self.parse_ohlcvs(response, market, timeframe, since, limit)
 
@@ -515,12 +561,9 @@ class binance (Exchange):
         fee = None
         if 'commission' in trade:
             fee = {
-                'cost': self.safe_float(trade, 'commission'),
+                'cost': float(trade['commission']),
                 'currency': self.common_currency_code(trade['commissionAsset']),
             }
-        takerOrMaker = None
-        if 'isMaker' in trade:
-            takerOrMaker = 'maker' if trade['isMaker'] else 'taker'
         return {
             'info': trade,
             'timestamp': timestamp,
@@ -529,7 +572,6 @@ class binance (Exchange):
             'id': id,
             'order': order,
             'type': None,
-            'takerOrMaker': takerOrMaker,
             'side': side,
             'price': price,
             'cost': price * amount,
@@ -556,58 +598,51 @@ class binance (Exchange):
         return self.parse_trades(response, market, since, limit)
 
     def parse_order_status(self, status):
-        statuses = {
-            'NEW': 'open',
-            'PARTIALLY_FILLED': 'open',
-            'FILLED': 'closed',
-            'CANCELED': 'canceled',
-        }
-        return statuses[status] if (status in list(statuses.keys())) else status.lower()
+        if status == 'NEW':
+            return 'open'
+        if status == 'PARTIALLY_FILLED':
+            return 'open'
+        if status == 'FILLED':
+            return 'closed'
+        if status == 'CANCELED':
+            return 'canceled'
+        return status.lower()
 
     def parse_order(self, order, market=None):
         status = self.safe_value(order, 'status')
         if status is not None:
             status = self.parse_order_status(status)
-        symbol = self.find_symbol(self.safe_string(order, 'symbol'), market)
+        symbol = None
+        if market:
+            symbol = market['symbol']
+        else:
+            id = order['symbol']
+            if id in self.markets_by_id:
+                market = self.markets_by_id[id]
+                symbol = market['symbol']
         timestamp = None
         if 'time' in order:
             timestamp = order['time']
         elif 'transactTime' in order:
             timestamp = order['transactTime']
-        iso8601 = None
-        if timestamp is not None:
-            iso8601 = self.iso8601(timestamp)
-        price = self.safe_float(order, 'price')
-        amount = self.safe_float(order, 'origQty')
-        filled = self.safe_float(order, 'executedQty')
-        remaining = None
+        else:
+            raise ExchangeError(self.id + ' malformed order: ' + self.json(order))
+        price = float(order['price'])
+        amount = float(order['origQty'])
+        filled = self.safe_float(order, 'executedQty', 0.0)
+        remaining = max(amount - filled, 0.0)
         cost = None
-        if filled is not None:
-            if amount is not None:
-                remaining = amount - filled
-                if self.options['parseOrderToPrecision']:
-                    remaining = float(self.amount_to_precision(symbol, remaining))
-                remaining = max(remaining, 0.0)
-            if price is not None:
+        if price is not None:
+            if filled is not None:
                 cost = price * filled
-                if self.options['parseOrderToPrecision']:
-                    cost = float(self.cost_to_precision(symbol, cost))
-        id = self.safe_string(order, 'orderId')
-        type = self.safe_string(order, 'type')
-        if type is not None:
-            type = type.lower()
-        side = self.safe_string(order, 'side')
-        if side is not None:
-            side = side.lower()
         result = {
             'info': order,
-            'id': id,
+            'id': str(order['orderId']),
             'timestamp': timestamp,
-            'datetime': iso8601,
-            'lastTradeTimestamp': None,
+            'datetime': self.iso8601(timestamp),
             'symbol': symbol,
-            'type': type,
-            'side': side,
+            'type': order['type'].lower(),
+            'side': order['side'].lower(),
             'price': price,
             'amount': amount,
             'cost': cost,
@@ -621,46 +656,18 @@ class binance (Exchange):
     async def create_order(self, symbol, type, side, amount, price=None, params={}):
         await self.load_markets()
         market = self.market(symbol)
-        # the next 5 lines are added to support for testing orders
-        method = 'privatePostOrder'
-        test = self.safe_value(params, 'test', False)
-        if test:
-            method += 'Test'
-            params = self.omit(params, 'test')
-        uppercaseType = type.upper()
         order = {
             'symbol': market['id'],
             'quantity': self.amount_to_string(symbol, amount),
-            'type': uppercaseType,
+            'type': type.upper(),
             'side': side.upper(),
         }
-        timeInForceIsRequired = False
-        priceIsRequired = False
-        stopPriceIsRequired = False
-        if uppercaseType == 'LIMIT':
-            priceIsRequired = True
-            timeInForceIsRequired = True
-        elif (uppercaseType == 'STOP_LOSS') or (uppercaseType == 'TAKE_PROFIT'):
-            stopPriceIsRequired = True
-        elif (uppercaseType == 'STOP_LOSS_LIMIT') or (uppercaseType == 'TAKE_PROFIT_LIMIT'):
-            stopPriceIsRequired = True
-            priceIsRequired = True
-            timeInForceIsRequired = True
-        elif uppercaseType == 'LIMIT_MAKER':
-            priceIsRequired = True
-        if priceIsRequired:
-            if price is None:
-                raise InvalidOrder(self.id + ' createOrder method requires a price argument for a ' + type + ' order')
-            order['price'] = self.price_to_precision(symbol, price)
-        if timeInForceIsRequired:
-            order['timeInForce'] = self.options['defaultTimeInForce']  # 'GTC' = Good To Cancel(default), 'IOC' = Immediate Or Cancel
-        if stopPriceIsRequired:
-            stopPrice = self.safe_float(params, 'stopPrice')
-            if stopPrice is None:
-                raise InvalidOrder(self.id + ' createOrder method requires a stopPrice extra param for a ' + type + ' order')
-            else:
-                order['stopPrice'] = self.price_to_precision(symbol, stopPrice)
-        response = await getattr(self, method)(self.extend(order, params))
+        if type == 'limit':
+            order = self.extend(order, {
+                'price': self.price_to_precision(symbol, price),
+                'timeInForce': 'GTC',  # 'GTC' = Good To Cancel(default), 'IOC' = Immediate Or Cancel
+            })
+        response = await self.privatePostOrder(self.extend(order, params))
         return self.parse_order(response)
 
     async def fetch_order(self, id, symbol=None, params={}):
@@ -668,15 +675,10 @@ class binance (Exchange):
             raise ExchangeError(self.id + ' fetchOrder requires a symbol param')
         await self.load_markets()
         market = self.market(symbol)
-        origClientOrderId = self.safe_value(params, 'origClientOrderId')
-        request = {
+        response = await self.privateGetOrder(self.extend({
             'symbol': market['id'],
-        }
-        if origClientOrderId is not None:
-            request['origClientOrderId'] = origClientOrderId
-        else:
-            request['orderId'] = int(id)
-        response = await self.privateGetOrder(self.extend(request, params))
+            'orderId': int(id),
+        }, params))
         return self.parse_order(response, market)
 
     async def fetch_orders(self, symbol=None, since=None, limit=None, params={}):
@@ -693,17 +695,14 @@ class binance (Exchange):
         return self.parse_orders(response, market, since, limit)
 
     async def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
+        # if not symbol:
+        #     raise ExchangeError(self.id + ' fetchOpenOrders requires a symbol param')
         await self.load_markets()
         market = None
         request = {}
         if symbol is not None:
             market = self.market(symbol)
             request['symbol'] = market['id']
-        elif self.options['warnOnFetchOpenOrdersWithoutSymbol']:
-            symbols = self.symbols
-            numSymbols = len(symbols)
-            fetchOpenOrdersRateLimit = int(numSymbols / 2)
-            raise ExchangeError(self.id + ' fetchOpenOrders WARNING: fetching open orders without specifying a symbol is rate-limited to one call per ' + str(fetchOpenOrdersRateLimit) + ' seconds. Do not call self method frequently to avoid ban. Set ' + self.id + '.options["warnOnFetchOpenOrdersWithoutSymbol"] = False to suppress self warning message.')
         response = await self.privateGetOpenOrders(self.extend(request, params))
         return self.parse_orders(response, market, since, limit)
 
@@ -721,7 +720,7 @@ class binance (Exchange):
             'orderId': int(id),
             # 'origClientOrderId': id,
         }, params))
-        return self.parse_order(response)
+        return response
 
     async def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
         if not symbol:
@@ -736,8 +735,17 @@ class binance (Exchange):
         response = await self.privateGetMyTrades(self.extend(request, params))
         return self.parse_trades(response, market, since, limit)
 
+    def common_currency_code(self, currency):
+        currencies = {
+            'YOYO': 'YOYOW',
+            'BCC': 'BCH',
+            'NANO': 'XRB',
+        }
+        if currency in currencies:
+            return currencies[currency]
+        return currency
+
     async def fetch_deposit_address(self, code, params={}):
-        await self.load_markets()
         currency = self.currency(code)
         response = await self.wapiGetDepositAddress(self.extend({
             'asset': currency['id'],
@@ -748,37 +756,14 @@ class binance (Exchange):
                 tag = self.safe_string(response, 'addressTag')
                 return {
                     'currency': code,
-                    'address': self.check_address(address),
+                    'address': address,
                     'tag': tag,
                     'status': 'ok',
                     'info': response,
                 }
-
-    async def fetch_funding_fees(self, codes=None, params={}):
-        #  by default it will try load withdrawal fees of all currencies(with separate requests)
-        #  however if you define codes = ['ETH', 'BTC'] in args it will only load those
-        await self.load_markets()
-        withdrawFees = {}
-        info = {}
-        if codes is None:
-            codes = list(self.currencies.keys())
-        for i in range(0, len(codes)):
-            code = codes[i]
-            currency = self.currency(code)
-            response = await self.wapiGetWithdrawFee({
-                'asset': currency['id'],
-            })
-            withdrawFees[code] = self.safe_float(response, 'withdrawFee')
-            info[code] = response
-        return {
-            'withdraw': withdrawFees,
-            'deposit': {},
-            'info': info,
-        }
+        raise ExchangeError(self.id + ' fetchDepositAddress failed: ' + self.last_http_response)
 
     async def withdraw(self, code, amount, address, tag=None, params={}):
-        self.check_address(address)
-        await self.load_markets()
         currency = self.currency(code)
         name = address[0:20]
         request = {
@@ -810,7 +795,7 @@ class binance (Exchange):
         elif (api == 'private') or (api == 'wapi'):
             self.check_required_credentials()
             query = self.urlencode(self.extend({
-                'timestamp': self.nonce(),
+                'timestamp': self.milliseconds(),
                 'recvWindow': self.options['recvWindow'],
             }, params))
             signature = self.hmac(self.encode(query), self.encode(self.secret))
@@ -829,52 +814,28 @@ class binance (Exchange):
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
     def handle_errors(self, code, reason, url, method, headers, body):
-        if (code == 418) or (code == 429):
-            raise DDoSProtection(self.id + ' ' + str(code) + ' ' + reason + ' ' + body)
-        # error response in a form: {"code": -1013, "msg": "Invalid quantity."}
-        # following block cointains legacy checks against message patterns in "msg" property
-        # will switch "code" checks eventually, when we know all of them
         if code >= 400:
+            if (code == 418) or (code == 429):
+                raise DDoSProtection(self.id + ' ' + str(code) + ' ' + reason + ' ' + body)
             if body.find('Price * QTY is zero or less') >= 0:
                 raise InvalidOrder(self.id + ' order cost = amount * price is zero or less ' + body)
+            if body.find('MIN_NOTIONAL') >= 0:
+                raise InvalidOrder(self.id + ' order cost = amount * price is too small ' + body)
             if body.find('LOT_SIZE') >= 0:
                 raise InvalidOrder(self.id + ' order amount should be evenly divisible by lot size, use self.amount_to_lots(symbol, amount) ' + body)
             if body.find('PRICE_FILTER') >= 0:
                 raise InvalidOrder(self.id + ' order price exceeds allowed price precision or invalid, use self.price_to_precision(symbol, amount) ' + body)
-        if len(body) > 0:
-            if body[0] == '{':
-                response = json.loads(body)
-                # check success value for wapi endpoints
-                # response in format {'msg': 'The coin does not exist.', 'success': True/false}
-                success = self.safe_value(response, 'success', True)
-                if not success:
-                    if 'msg' in response:
-                        try:
-                            response = json.loads(response['msg'])
-                        except Exception as e:
-                            response = {}
-                # checks against error codes
-                error = self.safe_string(response, 'code')
-                if error is not None:
-                    exceptions = self.exceptions
-                    if error in exceptions:
-                        # a workaround for {"code":-2015,"msg":"Invalid API-key, IP, or permissions for action."}
-                        # despite that their message is very confusing, it is raised by Binance
-                        # on a temporary ban(the API key is valid, but disabled for a while)
-                        if (error == '-2015') and self.options['hasAlreadyAuthenticatedSuccessfully']:
-                            raise DDoSProtection(self.id + ' temporary banned: ' + body)
-                        message = self.safe_string(response, 'msg')
-                        if message == 'Order would trigger immediately.':
-                            raise InvalidOrder(self.id + ' ' + body)
-                        raise exceptions[error](self.id + ' ' + body)
-                    else:
-                        raise ExchangeError(self.id + ': unknown error code: ' + body + ' ' + error)
-                if not success:
-                    raise ExchangeError(self.id + ': success value False: ' + body)
-
-    async def request(self, path, api='public', method='GET', params={}, headers=None, body=None):
-        response = await self.fetch2(path, api, method, params, headers, body)
-        # a workaround for {"code":-2015,"msg":"Invalid API-key, IP, or permissions for action."}
-        if (api == 'private') or (api == 'wapi'):
-            self.options['hasAlreadyAuthenticatedSuccessfully'] = True
-        return response
+            if body.find('Order does not exist') >= 0:
+                raise OrderNotFound(self.id + ' ' + body)
+        if isinstance(body, basestring):
+            if len(body) > 0:
+                if body[0] == '{':
+                    response = json.loads(body)
+                    error = self.safe_value(response, 'code')
+                    if error is not None:
+                        if error == -2010:
+                            raise InsufficientFunds(self.id + ' ' + self.json(response))
+                        elif error == -2011:
+                            raise OrderNotFound(self.id + ' ' + self.json(response))
+                        elif error == -1013:  # Invalid quantity
+                            raise InvalidOrder(self.id + ' ' + self.json(response))

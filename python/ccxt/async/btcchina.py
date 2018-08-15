@@ -143,27 +143,28 @@ class btcchina (Exchange):
         request = self.create_market_request(market)
         orderbook = await getattr(self, method)(self.extend(request, params))
         timestamp = orderbook['date'] * 1000
-        return self.parse_order_book(orderbook, timestamp)
+        result = self.parse_order_book(orderbook, timestamp)
+        result['asks'] = self.sort_by(result['asks'], 0)
+        return result
 
     def parse_ticker(self, ticker, market):
         timestamp = ticker['date'] * 1000
-        last = self.safe_float(ticker, 'last')
         return {
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'high'),
-            'low': self.safe_float(ticker, 'low'),
-            'bid': self.safe_float(ticker, 'buy'),
-            'ask': self.safe_float(ticker, 'sell'),
-            'vwap': self.safe_float(ticker, 'vwap'),
-            'open': self.safe_float(ticker, 'open'),
-            'close': last,
-            'last': last,
-            'previousClose': None,
+            'high': float(ticker['high']),
+            'low': float(ticker['low']),
+            'bid': float(ticker['buy']),
+            'ask': float(ticker['sell']),
+            'vwap': float(ticker['vwap']),
+            'open': float(ticker['open']),
+            'close': float(ticker['prev_close']),
+            'first': None,
+            'last': float(ticker['last']),
             'change': None,
             'percentage': None,
             'average': None,
-            'baseVolume': self.safe_float(ticker, 'vol'),
+            'baseVolume': float(ticker['vol']),
             'quoteVolume': None,
             'info': ticker,
         }
@@ -177,17 +178,19 @@ class btcchina (Exchange):
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'High'),
-            'low': self.safe_float(ticker, 'Low'),
-            'bid': self.safe_float(ticker, 'BidPrice'),
-            'ask': self.safe_float(ticker, 'AskPrice'),
+            'high': float(ticker['High']),
+            'low': float(ticker['Low']),
+            'bid': float(ticker['BidPrice']),
+            'ask': float(ticker['AskPrice']),
             'vwap': None,
-            'open': self.safe_float(ticker, 'Open'),
-            'last': self.safe_float(ticker, 'Last'),
+            'open': float(ticker['Open']),
+            'close': float(ticker['PrevCls']),
+            'first': None,
+            'last': float(ticker['Last']),
             'change': None,
             'percentage': None,
             'average': None,
-            'baseVolume': self.safe_float(ticker, 'Volume24H'),
+            'baseVolume': float(ticker['Volume24H']),
             'quoteVolume': None,
             'info': ticker,
         }

@@ -4,13 +4,6 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.async.hitbtc import hitbtc
-
-# -----------------------------------------------------------------------------
-
-try:
-    basestring  # Python 3
-except NameError:
-    basestring = str  # Python 2
 import base64
 import math
 import json
@@ -18,7 +11,6 @@ from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
-from ccxt.base.errors import ExchangeNotAvailable
 
 
 class hitbtc2 (hitbtc):
@@ -27,14 +19,13 @@ class hitbtc2 (hitbtc):
         return self.deep_extend(super(hitbtc2, self).describe(), {
             'id': 'hitbtc2',
             'name': 'HitBTC v2',
-            'countries': 'HK',
+            'countries': 'UK',
             'rateLimit': 1500,
             'version': '2',
             'has': {
                 'createDepositAddress': True,
                 'fetchDepositAddress': True,
                 'CORS': True,
-                'editOrder': True,
                 'fetchCurrencies': True,
                 'fetchOHLCV': True,
                 'fetchTickers': True,
@@ -61,7 +52,6 @@ class hitbtc2 (hitbtc):
                 'logo': 'https://user-images.githubusercontent.com/1294454/27766555-8eaec20e-5edc-11e7-9c5b-6dc69fc42f5e.jpg',
                 'api': 'https://api.hitbtc.com',
                 'www': 'https://hitbtc.com',
-                'referral': 'https://hitbtc.com/?ref_id=5a5d39a65d466',
                 'doc': 'https://api.hitbtc.com',
                 'fees': [
                     'https://hitbtc.com/fees-and-limits',
@@ -545,17 +535,19 @@ class hitbtc2 (hitbtc):
                     },
                 },
             },
-            'options': {
-                'defaultTimeInForce': 'FOK',
-            },
-            'exceptions': {
-                '2010': InvalidOrder,  # "Quantity not a valid number"
-                '2011': InvalidOrder,  # "Quantity too low"
-                '2020': InvalidOrder,  # "Price not a valid number"
-                '20002': OrderNotFound,  # canceling non-existent order
-                '20001': InsufficientFunds,
-            },
         })
+
+    def common_currency_code(self, currency):
+        currencies = {
+            'XBT': 'BTC',
+            'DRK': 'DASH',
+            'CAT': 'BitClave',
+            'USD': 'USDT',
+            'EMGO': 'MGO',
+        }
+        if currency in currencies:
+            return currencies[currency]
+        return currency
 
     def fee_to_precision(self, symbol, fee):
         return self.truncate(fee, 8)
@@ -571,16 +563,14 @@ class hitbtc2 (hitbtc):
             base = self.common_currency_code(baseId)
             quote = self.common_currency_code(quoteId)
             symbol = base + '/' + quote
-            lot = self.safe_float(market, 'quantityIncrement')
-            step = self.safe_float(market, 'tickSize')
+            lot = float(market['quantityIncrement'])
+            step = float(market['tickSize'])
             precision = {
                 'price': self.precision_from_string(market['tickSize']),
-                # FIXME: for lots > 1 the following line returns 0
-                # 'amount': self.precision_from_string(market['quantityIncrement']),
-                'amount': -1 * math.log10(lot),
+                'amount': self.precision_from_string(market['quantityIncrement']),
             }
-            taker = self.safe_float(market, 'takeLiquidityRate')
-            maker = self.safe_float(market, 'provideLiquidityRate')
+            taker = float(market['takeLiquidityRate'])
+            maker = float(market['provideLiquidityRate'])
             result.append(self.extend(self.fees['trading'], {
                 'info': market,
                 'id': id,
@@ -590,6 +580,8 @@ class hitbtc2 (hitbtc):
                 'baseId': baseId,
                 'quoteId': quoteId,
                 'active': True,
+                'lot': lot,
+                'step': step,
                 'taker': taker,
                 'maker': maker,
                 'precision': precision,
@@ -643,7 +635,7 @@ class hitbtc2 (hitbtc):
                 'name': currency['fullName'],
                 'active': active,
                 'status': status,
-                'fee': self.safe_float(currency, 'payoutFee'),  # todo: redesign
+                'fee': None,  # todo: redesign
                 'precision': precision,
                 'limits': {
                     'amount': {
@@ -693,7 +685,7 @@ class hitbtc2 (hitbtc):
             float(ohlcv['max']),
             float(ohlcv['min']),
             float(ohlcv['close']),
-            float(ohlcv['volume']),
+            float(ohlcv['volumeQuote']),
         ]
 
     async def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
@@ -723,23 +715,6 @@ class hitbtc2 (hitbtc):
         symbol = None
         if market:
             symbol = market['symbol']
-        baseVolume = self.safe_float(ticker, 'volume')
-        quoteVolume = self.safe_float(ticker, 'volumeQuote')
-        open = self.safe_float(ticker, 'open')
-        last = self.safe_float(ticker, 'last')
-        change = None
-        percentage = None
-        average = None
-        if last is not None and open is not None:
-            change = last - open
-            average = self.sum(last, open) / 2
-            if open > 0:
-                percentage = change / open * 100
-        vwap = None
-        if quoteVolume is not None:
-            if baseVolume is not None:
-                if baseVolume > 0:
-                    vwap = quoteVolume / baseVolume
         return {
             'symbol': symbol,
             'timestamp': timestamp,
@@ -747,19 +722,17 @@ class hitbtc2 (hitbtc):
             'high': self.safe_float(ticker, 'high'),
             'low': self.safe_float(ticker, 'low'),
             'bid': self.safe_float(ticker, 'bid'),
-            'bidVolume': None,
             'ask': self.safe_float(ticker, 'ask'),
-            'askVolume': None,
-            'vwap': vwap,
-            'open': open,
-            'close': last,
-            'last': last,
-            'previousClose': None,
-            'change': change,
-            'percentage': percentage,
-            'average': average,
-            'baseVolume': baseVolume,
-            'quoteVolume': quoteVolume,
+            'vwap': None,
+            'open': self.safe_float(ticker, 'open'),
+            'close': self.safe_float(ticker, 'close'),
+            'first': None,
+            'last': self.safe_float(ticker, 'last'),
+            'change': None,
+            'percentage': None,
+            'average': None,
+            'baseVolume': self.safe_float(ticker, 'volume'),
+            'quoteVolume': self.safe_float(ticker, 'volumeQuote'),
             'info': ticker,
         }
 
@@ -801,14 +774,14 @@ class hitbtc2 (hitbtc):
         if 'fee' in trade:
             currency = market['quote'] if market else None
             fee = {
-                'cost': self.safe_float(trade, 'fee'),
+                'cost': float(trade['fee']),
                 'currency': currency,
             }
         orderId = None
         if 'clientOrderId' in trade:
             orderId = trade['clientOrderId']
-        price = self.safe_float(trade, 'price')
-        amount = self.safe_float(trade, 'quantity')
+        price = float(trade['price'])
+        amount = float(trade['quantity'])
         cost = price * amount
         return {
             'info': trade,
@@ -852,39 +825,18 @@ class hitbtc2 (hitbtc):
         if type == 'limit':
             request['price'] = self.price_to_precision(symbol, price)
         else:
-            request['timeInForce'] = self.options['defaultTimeInForce']
+            request['timeInForce'] = 'FOK'
         response = await self.privatePostOrder(self.extend(request, params))
         order = self.parse_order(response)
         id = order['id']
         self.orders[id] = order
         return order
 
-    async def edit_order(self, id, symbol, type, side, amount=None, price=None, params={}):
-        await self.load_markets()
-        # their max accepted length is 32 characters
-        uuid = self.uuid()
-        parts = uuid.split('-')
-        requestClientId = ''.join(parts)
-        requestClientId = requestClientId[0:32]
-        request = {
-            'clientOrderId': id,
-            'requestClientId': requestClientId,
-        }
-        if amount is not None:
-            request['quantity'] = self.amount_to_precision(symbol, float(amount))
-        if price is not None:
-            request['price'] = self.price_to_precision(symbol, price)
-        response = await self.privatePatchOrderClientOrderId(self.extend(request, params))
-        order = self.parse_order(response)
-        self.orders[order['id']] = order
-        return order
-
     async def cancel_order(self, id, symbol=None, params={}):
         await self.load_markets()
-        response = await self.privateDeleteOrderClientOrderId(self.extend({
+        return await self.privateDeleteOrderClientOrderId(self.extend({
             'clientOrderId': id,
         }, params))
-        return self.parse_order(response)
 
     def parse_order(self, order, market=None):
         created = None
@@ -923,7 +875,8 @@ class hitbtc2 (hitbtc):
             'id': id,
             'timestamp': created,
             'datetime': self.iso8601(created),
-            'lastTradeTimestamp': updated,
+            'created': created,
+            'updated': updated,
             'status': status,
             'symbol': symbol,
             'type': order['type'],
@@ -976,19 +929,17 @@ class hitbtc2 (hitbtc):
         if since is not None:
             request['from'] = self.iso8601(since)
         response = await self.privateGetHistoryOrder(self.extend(request, params))
-        orders = self.parse_orders(response, market)
-        orders = self.filter_by(orders, 'status', 'closed')
-        return self.filter_by_since_limit(orders, since, limit)
+        return self.parse_orders(response, market, since, limit)
 
     async def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
         await self.load_markets()
         request = {
             # 'symbol': 'BTC/USD',  # optional
-            # 'sort':   'DESC',  # or 'ASC'
-            # 'by':     'timestamp',  # or 'id' String timestamp by default, or id
-            # 'from':   'Datetime or Number',  # ISO 8601
-            # 'till':   'Datetime or Number',
-            # 'limit':  100,
+            # 'sort': 'DESC',  # or 'ASC'
+            # 'by': 'timestamp',  # or 'id'	String	timestamp by default, or id
+            # 'from':	'Datetime or Number',  # ISO 8601
+            # 'till':	'Datetime or Number',
+            # 'limit': 100,
             # 'offset': 0,
         }
         market = None
@@ -1003,9 +954,9 @@ class hitbtc2 (hitbtc):
         return self.parse_trades(response, market, since, limit)
 
     async def fetch_order_trades(self, id, symbol=None, since=None, limit=None, params={}):
-        # The id needed here is the exchange's id, and not the clientOrderID,
-        # which is the id that is stored in the unified order id
-        # To get the exchange's id you need to grab it from order['info']['id']
+        # The id needed here is the exchange's id, and not the clientOrderID, which is
+        # the id that is stored in the unified api order id. In order the get the exchange's id,
+        # you need to grab it from order['info']['id']
         await self.load_markets()
         market = None
         if symbol is not None:
@@ -1025,7 +976,6 @@ class hitbtc2 (hitbtc):
             'currency': currency['id'],
         })
         address = response['address']
-        self.check_address(address)
         tag = self.safe_string(response, 'paymentId')
         return {
             'currency': currency,
@@ -1042,10 +992,9 @@ class hitbtc2 (hitbtc):
             'currency': currency['id'],
         })
         address = response['address']
-        self.check_address(address)
         tag = self.safe_string(response, 'paymentId')
         return {
-            'currency': currency['code'],
+            'currency': currency,
             'address': address,
             'tag': tag,
             'status': 'ok',
@@ -1053,7 +1002,6 @@ class hitbtc2 (hitbtc):
         }
 
     async def withdraw(self, code, amount, address, tag=None, params={}):
-        self.check_address(address)
         currency = self.currency(code)
         request = {
             'currency': currency['id'],
@@ -1094,22 +1042,24 @@ class hitbtc2 (hitbtc):
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
     def handle_errors(self, code, reason, url, method, headers, body):
-        if not isinstance(body, basestring):
-            return
-        if code >= 400:
-            feedback = self.id + ' ' + body
-            # {"code":504,"message":"Gateway Timeout","description":""}
-            if (code == 503) or (code == 504):
-                raise ExchangeNotAvailable(feedback)
-            # {"error":{"code":20002,"message":"Order not found","description":""}}
+        if code == 400:
             if body[0] == '{':
                 response = json.loads(body)
                 if 'error' in response:
-                    code = self.safe_string(response['error'], 'code')
-                    exceptions = self.exceptions
-                    if code in exceptions:
-                        raise exceptions[code](feedback)
-                    message = self.safe_string(response['error'], 'message')
-                    if message == 'Duplicate clientOrderId':
-                        raise InvalidOrder(feedback)
-            raise ExchangeError(feedback)
+                    if 'message' in response['error']:
+                        message = response['error']['message']
+                        if message == 'Order not found':
+                            raise OrderNotFound(self.id + ' order not found in active orders')
+                        elif message == 'Quantity not a valid number':
+                            raise InvalidOrder(self.id + ' ' + body)
+                        elif message == 'Insufficient funds':
+                            raise InsufficientFunds(self.id + ' ' + body)
+                        elif message == 'Duplicate clientOrderId':
+                            raise InvalidOrder(self.id + ' ' + body)
+            raise ExchangeError(self.id + ' ' + body)
+
+    async def request(self, path, api='public', method='GET', params={}, headers=None, body=None):
+        response = await self.fetch2(path, api, method, params, headers, body)
+        if 'error' in response:
+            raise ExchangeError(self.id + ' ' + self.json(response))
+        return response

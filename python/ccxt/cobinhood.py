@@ -4,12 +4,7 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.base.exchange import Exchange
-import json
 from ccxt.base.errors import ExchangeError
-from ccxt.base.errors import PermissionDenied
-from ccxt.base.errors import InsufficientFunds
-from ccxt.base.errors import InvalidOrder
-from ccxt.base.errors import InvalidNonce
 
 
 class cobinhood (Exchange):
@@ -21,20 +16,11 @@ class cobinhood (Exchange):
             'countries': 'TW',
             'rateLimit': 1000 / 10,
             'has': {
-                'fetchCurrencies': True,
                 'fetchTickers': True,
                 'fetchOHLCV': True,
                 'fetchOpenOrders': True,
                 'fetchClosedOrders': True,
                 'fetchOrder': True,
-                'fetchDepositAddress': True,
-                'createDepositAddress': True,
-                'withdraw': True,
-                'fetchMyTrades': True,
-            },
-            'requiredCredentials': {
-                'apiKey': True,
-                'secret': False,
             },
             'timeframes': {
                 # the first two don't seem to work at all
@@ -56,6 +42,10 @@ class cobinhood (Exchange):
                 'api': {
                     'web': 'https://api.cobinhood.com/v1',
                     'ws': 'wss://feed.cobinhood.com',
+                },
+                'test': {
+                    'web': 'https://sandbox-api.cobinhood.com',
+                    'ws': 'wss://sandbox-feed.cobinhood.com',
                 },
                 'www': 'https://cobinhood.com',
                 'doc': 'https://cobinhood.github.io/api-public',
@@ -86,7 +76,6 @@ class cobinhood (Exchange):
                 },
                 'public': {
                     'get': [
-                        'market/tickers',
                         'market/currencies',
                         'market/trading_pairs',
                         'market/orderbooks/{trading_pair_id}',
@@ -102,7 +91,6 @@ class cobinhood (Exchange):
                         'trading/orders/{order_id}/trades',
                         'trading/orders',
                         'trading/order_history',
-                        'trading/trades',
                         'trading/trades/{trade_id}',
                         'wallet/balances',
                         'wallet/ledger',
@@ -134,22 +122,16 @@ class cobinhood (Exchange):
                 'amount': 8,
                 'price': 8,
             },
-            'exceptions': {
-                'insufficient_balance': InsufficientFunds,
-                'invalid_nonce': InvalidNonce,
-                'unauthorized_scope': PermissionDenied,
-            },
         })
 
     def fetch_currencies(self, params={}):
         response = self.publicGetMarketCurrencies(params)
-        currencies = response['result']['currencies']
+        currencies = response['result']
         result = {}
         for i in range(0, len(currencies)):
             currency = currencies[i]
             id = currency['currency']
             code = self.common_currency_code(id)
-            minUnit = self.safe_float(currency, 'min_unit')
             result[code] = {
                 'id': id,
                 'code': code,
@@ -157,31 +139,16 @@ class cobinhood (Exchange):
                 'active': True,
                 'status': 'ok',
                 'fiat': False,
-                'precision': self.precision_from_string(currency['min_unit']),
-                'limits': {
-                    'amount': {
-                        'min': minUnit,
-                        'max': None,
-                    },
-                    'price': {
-                        'min': minUnit,
-                        'max': None,
-                    },
-                    'deposit': {
-                        'min': minUnit,
-                        'max': None,
-                    },
-                    'withdraw': {
-                        'min': minUnit,
-                        'max': None,
-                    },
-                },
+                'lot': float(currency['min_unit']),
+                'precision': 8,
                 'funding': {
                     'withdraw': {
-                        'fee': self.safe_float(currency, 'withdrawal_fee'),
+                        'active': True,
+                        'fee': float(currency['withdrawal_fee']),
                     },
                     'deposit': {
-                        'fee': self.safe_float(currency, 'deposit_fee'),
+                        'active': True,
+                        'fee': float(currency['deposit_fee']),
                     },
                 },
                 'info': currency,
@@ -195,36 +162,19 @@ class cobinhood (Exchange):
         for i in range(0, len(markets)):
             market = markets[i]
             id = market['id']
-            baseId, quoteId = id.split('-')
-            base = self.common_currency_code(baseId)
-            quote = self.common_currency_code(quoteId)
+            base, quote = id.split('-')
             symbol = base + '/' + quote
-            precision = {
-                'amount': 8,
-                'price': self.precision_from_string(market['quote_increment']),
-            }
-            active = self.safe_value(market, 'is_active', True)
             result.append({
                 'id': id,
                 'symbol': symbol,
-                'base': base,
-                'quote': quote,
-                'baseId': baseId,
-                'quoteId': quoteId,
-                'active': active,
-                'precision': precision,
+                'base': self.common_currency_code(base),
+                'quote': self.common_currency_code(quote),
+                'active': True,
+                'lot': float(market['quote_increment']),
                 'limits': {
                     'amount': {
-                        'min': self.safe_float(market, 'base_min_size'),
-                        'max': self.safe_float(market, 'base_max_size'),
-                    },
-                    'price': {
-                        'min': None,
-                        'max': None,
-                    },
-                    'cost': {
-                        'min': None,
-                        'max': None,
+                        'min': float(market['base_min_size']),
+                        'max': float(market['base_max_size']),
                     },
                 },
                 'info': market,
@@ -232,35 +182,35 @@ class cobinhood (Exchange):
         return result
 
     def parse_ticker(self, ticker, market=None):
-        if market is None:
-            marketId = self.safe_string(ticker, 'trading_pair_id')
-            market = self.find_market(marketId)
-        symbol = None
-        if market is not None:
-            symbol = market['symbol']
-        timestamp = self.safe_integer(ticker, 'timestamp')
-        last = self.safe_float(ticker, 'last_trade_price')
+        symbol = market['symbol']
+        timestamp = None
+        if 'timestamp' in ticker:
+            timestamp = ticker['timestamp']
+        else:
+            timestamp = self.milliseconds()
+        info = ticker
+        # from fetchTicker
+        if 'info' in ticker:
+            info = ticker['info']
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, '24h_high'),
-            'low': self.safe_float(ticker, '24h_low'),
-            'bid': self.safe_float(ticker, 'highest_bid'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'lowest_ask'),
-            'askVolume': None,
+            'high': float(ticker['high_24hr']),
+            'low': float(ticker['low_24hr']),
+            'bid': float(ticker['highest_bid']),
+            'ask': float(ticker['lowest_ask']),
             'vwap': None,
             'open': None,
-            'close': last,
-            'last': last,
-            'previousClose': None,
+            'close': None,
+            'first': None,
+            'last': self.safe_float(ticker, 'last_price'),
             'change': self.safe_float(ticker, 'percentChanged24hr'),
             'percentage': None,
             'average': None,
-            'baseVolume': self.safe_float(ticker, '24h_volume'),
+            'baseVolume': float(ticker['base_volume']),
             'quoteVolume': self.safe_float(ticker, 'quote_volume'),
-            'info': ticker,
+            'info': info,
         }
 
     def fetch_ticker(self, symbol, params={}):
@@ -270,16 +220,31 @@ class cobinhood (Exchange):
             'trading_pair_id': market['id'],
         }, params))
         ticker = response['result']['ticker']
+        ticker = {
+            'last_price': ticker['last_trade_price'],
+            'highest_bid': ticker['highest_bid'],
+            'lowest_ask': ticker['lowest_ask'],
+            'base_volume': ticker['24h_volume'],
+            'high_24hr': ticker['24h_high'],
+            'low_24hr': ticker['24h_low'],
+            'timestamp': ticker['timestamp'],
+            'info': response,
+        }
         return self.parse_ticker(ticker, market)
 
     def fetch_tickers(self, symbols=None, params={}):
         self.load_markets()
-        response = self.publicGetMarketTickers(params)
-        tickers = response['result']['tickers']
-        result = []
-        for i in range(0, len(tickers)):
-            result.append(self.parse_ticker(tickers[i]))
-        return self.index_by(result, 'symbol')
+        response = self.publicGetMarketStats(params)
+        tickers = response['result']
+        ids = list(tickers.keys())
+        result = {}
+        for i in range(0, len(ids)):
+            id = ids[i]
+            market = self.markets_by_id[id]
+            symbol = market['symbol']
+            ticker = tickers[id]
+            result[symbol] = self.parse_ticker(ticker, market)
+        return result
 
     def fetch_order_book(self, symbol, limit=None, params={}):
         self.load_markets()
@@ -296,8 +261,8 @@ class cobinhood (Exchange):
         if market:
             symbol = market['symbol']
         timestamp = trade['timestamp']
-        price = self.safe_float(trade, 'price')
-        amount = self.safe_float(trade, 'size')
+        price = float(trade['price'])
+        amount = float(trade['size'])
         cost = float(self.cost_to_precision(symbol, price * amount))
         side = trade['maker_side'] == 'sell' if 'bid' else 'buy'
         return {
@@ -368,70 +333,49 @@ class cobinhood (Exchange):
         balances = response['result']['balances']
         for i in range(0, len(balances)):
             balance = balances[i]
-            currency = balance['currency']
-            if currency in self.currencies_by_id:
-                currency = self.currencies_by_id[currency]['code']
+            id = balance['currency']
+            currency = self.common_currency_code(id)
             account = {
+                'free': float(balance['total']),
                 'used': float(balance['on_order']),
-                'total': float(balance['total']),
+                'total': 0.0,
             }
-            account['free'] = float(account['total'] - account['used'])
+            account['total'] = self.sum(account['free'], account['used'])
             result[currency] = account
         return self.parse_balance(result)
 
-    def parse_order_status(self, status):
-        statuses = {
-            'filled': 'closed',
-            'rejected': 'closed',
-            'partially_filled': 'open',
-            'pending_cancellation': 'open',
-            'pending_modification': 'open',
-            'open': 'open',
-            'new': 'open',
-            'queued': 'open',
-            'cancelled': 'canceled',
-            'triggered': 'triggered',
-        }
-        if status in statuses:
-            return statuses[status]
-        return status
-
     def parse_order(self, order, market=None):
         symbol = None
-        if market is None:
-            marketId = self.safe_string(order, 'trading_pair')
-            marketId = self.safe_string(order, 'trading_pair_id', marketId)
-            market = self.safe_value(self.markets_by_id, marketId)
-        if market is not None:
+        if not market:
+            marketId = order['trading_pair']
+            market = self.markets_by_id[marketId]
+        if market:
             symbol = market['symbol']
-        timestamp = self.safe_integer(order, 'timestamp')
-        price = self.safe_float(order, 'eq_price')
-        amount = self.safe_float(order, 'size')
-        filled = self.safe_float(order, 'filled')
-        remaining = None
-        cost = None
-        if amount is not None:
-            if filled is not None:
-                remaining = amount - filled
-            if price is not None:
-                cost = price * amount
-        status = self.parse_order_status(self.safe_string(order, 'state'))
-        side = self.safe_string(order, 'side')
-        if side == 'bid':
-            side = 'buy'
-        elif side == 'ask':
-            side = 'sell'
+        timestamp = order['timestamp']
+        price = float(order['price'])
+        amount = float(order['size'])
+        filled = float(order['filled'])
+        remaining = self.amount_to_precision(symbol, amount - filled)
+        # new, queued, open, partially_filled, filled, cancelled
+        status = order['state']
+        if status == 'filled':
+            status = 'closed'
+        elif status == 'cancelled':
+            status = 'canceled'
+        else:
+            status = 'open'
+        side = order['side'] == 'buy' if 'bid' else 'sell'
         return {
             'id': order['id'],
             'datetime': self.iso8601(timestamp),
             'timestamp': timestamp,
-            'lastTradeTimestamp': None,
             'status': status,
             'symbol': symbol,
-            'type': order['type'],  # market, limit, stop, stop_limit, trailing_stop, fill_or_kill
+            # market, limit, stop, stop_limit, trailing_stop, fill_or_kill
+            'type': order['type'],
             'side': side,
             'price': price,
-            'cost': cost,
+            'cost': price * amount,
             'amount': amount,
             'filled': filled,
             'remaining': remaining,
@@ -443,12 +387,13 @@ class cobinhood (Exchange):
     def create_order(self, symbol, type, side, amount, price=None, params={}):
         self.load_markets()
         market = self.market(symbol)
-        side = 'ask' if (side == 'sell') else 'bid'
+        side = (side == 'ask' if 'sell' else 'bid')
         request = {
             'trading_pair_id': market['id'],
-            'type': type,  # market, limit, stop, stop_limit
+            # market, limit, stop, stop_limit
+            'type': type,
             'side': side,
-            'size': self.amount_to_string(symbol, amount),
+            'size': self.amount_to_precision(symbol, amount),
         }
         if type != 'market':
             request['price'] = self.price_to_precision(symbol, price)
@@ -462,7 +407,7 @@ class cobinhood (Exchange):
         response = self.privateDeleteTradingOrdersOrderId(self.extend({
             'order_id': id,
         }, params))
-        return self.parse_order(response)
+        return response
 
     def fetch_order(self, id, symbol=None, params={}):
         self.load_markets()
@@ -471,21 +416,12 @@ class cobinhood (Exchange):
         }, params))
         return self.parse_order(response['result']['order'])
 
-    def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
-        self.load_markets()
-        result = self.privateGetTradingOrders(params)
-        orders = self.parse_orders(result['result']['orders'], None, since, limit)
-        if symbol is not None:
-            return self.filter_by_symbol(orders, symbol)
-        return orders
-
     def fetch_order_trades(self, id, symbol=None, params={}):
         self.load_markets()
         response = self.privateGetTradingOrdersOrderIdTrades(self.extend({
             'order_id': id,
         }, params))
-        market = None if (symbol is None) else self.market(symbol)
-        return self.parse_trades(response['result']['trades'], market)
+        return self.parse_trades(response['result'])
 
     def create_deposit_address(self, code, params={}):
         self.load_markets()
@@ -494,7 +430,8 @@ class cobinhood (Exchange):
             'currency': currency['id'],
         })
         address = self.safe_string(response['result']['deposit_address'], 'address')
-        self.check_address(address)
+        if not address:
+            raise ExchangeError(self.id + ' createDepositAddress failed: ' + self.last_http_response)
         return {
             'currency': code,
             'address': address,
@@ -508,11 +445,9 @@ class cobinhood (Exchange):
         response = self.privateGetWalletDepositAddresses(self.extend({
             'currency': currency['id'],
         }, params))
-        addresses = self.safe_value(response['result'], 'deposit_addresses', [])
-        address = None
-        if len(addresses) > 0:
-            address = self.safe_string(addresses[0], 'address')
-        self.check_address(address)
+        address = self.safe_string(response['result']['deposit_addresses'], 'address')
+        if not address:
+            raise ExchangeError(self.id + ' fetchDepositAddress failed: ' + self.last_http_response)
         return {
             'currency': code,
             'address': address,
@@ -533,24 +468,15 @@ class cobinhood (Exchange):
             'info': response,
         }
 
-    def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
-        self.load_markets()
-        market = self.market(symbol)
-        request = {}
-        if symbol is not None:
-            request['trading_pair_id'] = market['id']
-        response = self.privateGetTradingTrades(self.extend(request, params))
-        return self.parse_trades(response['result']['trades'], market, since, limit)
-
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = self.urls['api']['web'] + '/' + self.implode_params(path, params)
         query = self.omit(params, self.extract_params(path))
         headers = {}
         if api == 'private':
             self.check_required_credentials()
-            # headers['device_id'] = self.apiKey
-            headers['nonce'] = str(self.nonce())
-            headers['Authorization'] = self.apiKey
+            headers['device_id'] = self.apiKey
+            headers['nonce'] = self.nonce()
+            headers['Authorization'] = self.jwt(query, self.secret)
         if method == 'GET':
             query = self.urlencode(query)
             if len(query):
@@ -565,19 +491,6 @@ class cobinhood (Exchange):
             return
         if body[0] != '{':
             raise ExchangeError(self.id + ' ' + body)
-        response = json.loads(body)
-        feedback = self.id + ' ' + self.json(response)
-        errorCode = self.safe_value(response['error'], 'error_code')
-        if method == 'DELETE' or method == 'GET':
-            if errorCode == 'parameter_error':
-                if url.find('trading/orders/') >= 0:
-                    # Cobinhood returns vague "parameter_error" on fetchOrder() and cancelOrder() calls
-                    # for invalid order IDs as well as orders that are not "open"
-                    raise InvalidOrder(feedback)
-        exceptions = self.exceptions
-        if errorCode in exceptions:
-            raise exceptions[errorCode](feedback)
-        raise ExchangeError(feedback)
-
-    def nonce(self):
-        return self.milliseconds()
+        response = self.unjson(body)
+        message = self.safe_value(response['error'], 'error_code')
+        raise ExchangeError(self.id + ' ' + message)

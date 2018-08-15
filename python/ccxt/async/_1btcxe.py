@@ -114,28 +114,25 @@ class _1btcxe (Exchange):
             'currency': self.market_id(symbol),
         }, params))
         ticker = response['stats']
-        last = self.safe_float(ticker, 'last_price')
+        timestamp = self.milliseconds()
         return {
             'symbol': symbol,
-            'timestamp': None,
-            'datetime': None,
-            'high': self.safe_float(ticker, 'max'),
-            'low': self.safe_float(ticker, 'min'),
-            'bid': self.safe_float(ticker, 'bid'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'ask'),
-            'askVolume': None,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'high': float(ticker['max']),
+            'low': float(ticker['min']),
+            'bid': float(ticker['bid']),
+            'ask': float(ticker['ask']),
             'vwap': None,
-            'open': self.safe_float(ticker, 'open'),
-            'close': last,
-            'last': last,
-            'previousClose': None,
-            'change': self.safe_float(ticker, 'daily_change'),
+            'open': float(ticker['open']),
+            'close': None,
+            'first': None,
+            'last': float(ticker['last_price']),
+            'change': float(ticker['daily_change']),
             'percentage': None,
             'average': None,
             'baseVolume': None,
-            'quoteVolume': self.safe_float(ticker, 'total_btc_traded'),
-            'info': ticker,
+            'quoteVolume': float(ticker['total_btc_traded']),
         }
 
     def parse_ohlcv(self, ohlcv, market=None, timeframe='1d', since=None, limit=None):
@@ -168,8 +165,8 @@ class _1btcxe (Exchange):
             'order': None,
             'type': None,
             'side': trade['maker_type'],
-            'price': self.safe_float(trade, 'price'),
-            'amount': self.safe_float(trade, 'amount'),
+            'price': float(trade['price']),
+            'amount': float(trade['amount']),
         }
 
     async def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -199,7 +196,6 @@ class _1btcxe (Exchange):
         return await self.privatePostOrdersCancel({'id': id})
 
     async def withdraw(self, currency, amount, address, tag=None, params={}):
-        self.check_address(address)
         await self.load_markets()
         response = await self.privatePostWithdrawalsNew(self.extend({
             'currency': currency,

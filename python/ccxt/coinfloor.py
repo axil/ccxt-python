@@ -5,7 +5,7 @@
 
 from ccxt.base.exchange import Exchange
 import base64
-from ccxt.base.errors import NotSupported
+from ccxt.base.errors import ExchangeError
 
 
 class coinfloor (Exchange):
@@ -18,7 +18,6 @@ class coinfloor (Exchange):
             'countries': 'UK',
             'has': {
                 'CORS': False,
-                'fetchOpenOrders': True,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/28246081-623fc164-6a1c-11e7-913f-bac0d5576c90.jpg',
@@ -31,8 +30,7 @@ class coinfloor (Exchange):
             },
             'requiredCredentials': {
                 'apiKey': True,
-                'secret': False,
-                'password': True,
+                'secret': True,
                 'uid': True,
             },
             'api': {
@@ -68,32 +66,17 @@ class coinfloor (Exchange):
         })
 
     def fetch_balance(self, params={}):
-        market = None
+        symbol = None
         if 'symbol' in params:
-            market = self.find_market(params['symbol'])
+            symbol = params['symbol']
         if 'id' in params:
-            market = self.find_market(params['id'])
-        if not market:
-            raise NotSupported(self.id + ' fetchBalance requires a symbol param')
-        response = self.privatePostIdBalance({
-            'id': market['id'],
+            symbol = params['id']
+        if not symbol:
+            raise ExchangeError(self.id + ' fetchBalance requires a symbol param')
+        # todo parse balance
+        return self.privatePostIdBalance({
+            'id': self.market_id(symbol),
         })
-        result = {
-            'info': response,
-        }
-        # base/quote used for keys e.g. "xbt_reserved"
-        keys = market['id'].lower().split('/')
-        result[market['base']] = {
-            'free': float(response[keys[0] + '_available']),
-            'used': float(response[keys[0] + '_reserved']),
-            'total': float(response[keys[0] + '_balance']),
-        }
-        result[market['quote']] = {
-            'free': float(response[keys[1] + '_available']),
-            'used': float(response[keys[1] + '_reserved']),
-            'total': float(response[keys[1] + '_balance']),
-        }
-        return self.parse_balance(result)
 
     def fetch_order_book(self, symbol, limit=None, params={}):
         orderbook = self.publicGetIdOrderBook(self.extend({
@@ -108,26 +91,23 @@ class coinfloor (Exchange):
         if market:
             symbol = market['symbol']
         vwap = self.safe_float(ticker, 'vwap')
-        baseVolume = self.safe_float(ticker, 'volume')
+        baseVolume = float(ticker['volume'])
         quoteVolume = None
         if vwap is not None:
             quoteVolume = baseVolume * vwap
-        last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'high'),
-            'low': self.safe_float(ticker, 'low'),
-            'bid': self.safe_float(ticker, 'bid'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'ask'),
-            'askVolume': None,
+            'high': float(ticker['high']),
+            'low': float(ticker['low']),
+            'bid': float(ticker['bid']),
+            'ask': float(ticker['ask']),
             'vwap': vwap,
             'open': None,
-            'close': last,
-            'last': last,
-            'previousClose': None,
+            'close': None,
+            'first': None,
+            'last': float(ticker['last']),
             'change': None,
             'percentage': None,
             'average': None,
@@ -154,8 +134,8 @@ class coinfloor (Exchange):
             'symbol': market['symbol'],
             'type': None,
             'side': None,
-            'price': self.safe_float(trade, 'price'),
-            'amount': self.safe_float(trade, 'amount'),
+            'price': float(trade['price']),
+            'amount': float(trade['amount']),
         }
 
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -179,53 +159,6 @@ class coinfloor (Exchange):
     def cancel_order(self, id, symbol=None, params={}):
         return self.privatePostIdCancelOrder({'id': id})
 
-    def parse_order(self, order, market=None):
-        timestamp = self.parse_date(order['datetime'])
-        datetime = self.iso8601(timestamp)
-        price = self.safe_float(order, 'price')
-        amount = self.safe_float(order, 'amount')
-        cost = price * amount
-        side = None
-        status = self.safe_string(order, 'status')
-        if order['type'] == 0:
-            side = 'buy'
-        elif order['type'] == 1:
-            side = 'sell'
-        symbol = None
-        if market is not None:
-            symbol = market['symbol']
-        id = str(order['id'])
-        return {
-            'info': order,
-            'id': id,
-            'datetime': datetime,
-            'timestamp': timestamp,
-            'lastTradeTimestamp': None,
-            'status': status,
-            'symbol': symbol,
-            'type': 'limit',
-            'side': side,
-            'price': price,
-            'amount': amount,
-            'filled': None,
-            'remaining': None,
-            'cost': cost,
-            'fee': None,
-        }
-
-    def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
-        if not symbol:
-            raise NotSupported(self.id + ' fetchOpenOrders requires a symbol param')
-        self.load_markets()
-        market = self.market(symbol)
-        orders = self.privatePostIdOpenOrders({
-            'id': market['id'],
-        })
-        for i in range(0, len(orders)):
-            # Coinfloor open orders would always be limit orders
-            orders[i] = self.extend(orders[i], {'status': 'open'})
-        return self.parse_orders(orders, market, since, limit)
-
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         # curl -k -u '[User ID]/[API key]:[Passphrase]' https://webapi.coinfloor.co.uk:8090/bist/XBT/GBP/balance/
         url = self.urls['api'] + '/' + self.implode_params(path, params)
@@ -238,7 +171,7 @@ class coinfloor (Exchange):
             nonce = self.nonce()
             body = self.urlencode(self.extend({'nonce': nonce}, query))
             auth = self.uid + '/' + self.apiKey + ':' + self.password
-            signature = self.decode(base64.b64encode(self.encode(auth)))
+            signature = base64.b64encode(auth)
             headers = {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Authorization': 'Basic ' + signature,

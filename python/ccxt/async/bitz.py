@@ -4,7 +4,6 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.async.base.exchange import Exchange
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import InsufficientFunds
@@ -21,8 +20,6 @@ class bitz (Exchange):
             'name': 'Bit-Z',
             'countries': 'HK',
             'rateLimit': 1000,
-            'version': 'v1',
-            'userAgent': self.userAgents['chrome'],
             'has': {
                 'fetchTickers': True,
                 'fetchOHLCV': True,
@@ -39,7 +36,7 @@ class bitz (Exchange):
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/35862606-4f554f14-0b5d-11e8-957d-35058c504b6f.jpg',
                 'api': 'https://www.bit-z.com/api_v1',
-                'www': 'https://www.bit-z.com',
+                'www': 'https://www.bit-z.com/',
                 'doc': 'https://www.bit-z.com/api.html',
                 'fees': 'https://www.bit-z.com/about/fee',
             },
@@ -55,7 +52,6 @@ class bitz (Exchange):
                 },
                 'private': {
                     'post': [
-                        'balances',
                         'tradeAdd',
                         'tradeCancel',
                         'openOrders',
@@ -129,12 +125,6 @@ class bitz (Exchange):
                 'amount': 8,
                 'price': 8,
             },
-            'options': {
-                'lastNonceTimestamp': 0,
-            },
-            'commonCurrencies': {
-                'PXC': 'Pixiecoin',
-            },
         })
 
     async def fetch_markets(self):
@@ -145,9 +135,8 @@ class bitz (Exchange):
         for i in range(0, len(ids)):
             id = ids[i]
             market = markets[id]
-            baseId, quoteId = id.split('_')
-            base = baseId.upper()
-            quote = quoteId.upper()
+            idUpper = id.upper()
+            base, quote = idUpper.split('_')
             base = self.common_currency_code(base)
             quote = self.common_currency_code(quote)
             symbol = base + '/' + quote
@@ -156,58 +145,31 @@ class bitz (Exchange):
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
-                'baseId': baseId,
-                'quoteId': quoteId,
                 'active': True,
                 'info': market,
             })
         return result
 
-    async def fetch_balance(self, params={}):
-        await self.load_markets()
-        response = await self.privatePostBalances(params)
-        data = response['data']
-        balances = self.omit(data, 'uid')
-        result = {'info': response}
-        keys = list(balances.keys())
-        for i in range(0, len(keys)):
-            id = keys[i]
-            idHasUnderscore = (id.find('_') >= 0)
-            if not idHasUnderscore:
-                code = id.upper()
-                if id in self.currencies_by_id:
-                    code = self.currencies_by_id[id]['code']
-                account = self.account()
-                usedField = id + '_lock'
-                account['used'] = self.safe_float(balances, usedField)
-                account['total'] = self.safe_float(balances, id)
-                account['free'] = account['total'] - account['used']
-                result[code] = account
-        return self.parse_balance(result)
-
     def parse_ticker(self, ticker, market=None):
         timestamp = ticker['date'] * 1000
         symbol = market['symbol']
-        last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'high'),
-            'low': self.safe_float(ticker, 'low'),
-            'bid': self.safe_float(ticker, 'buy'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'sell'),
-            'askVolume': None,
+            'high': float(ticker['high']),
+            'low': float(ticker['low']),
+            'bid': float(ticker['buy']),
+            'ask': float(ticker['sell']),
             'vwap': None,
             'open': None,
-            'close': last,
-            'last': last,
-            'previousClose': None,
+            'close': None,
+            'first': None,
+            'last': float(ticker['last']),
             'change': None,
             'percentage': None,
             'average': None,
-            'baseVolume': self.safe_float(ticker, 'vol'),
+            'baseVolume': float(ticker['vol']),
             'quoteVolume': None,
             'info': ticker,
         }
@@ -228,7 +190,7 @@ class bitz (Exchange):
         ids = list(tickers.keys())
         for i in range(0, len(ids)):
             id = ids[i]
-            market = self.markets_by_id[id]
+            market = self.marketsById[id]
             symbol = market['symbol']
             result[symbol] = self.parse_ticker(tickers[id], market)
         return result
@@ -248,8 +210,8 @@ class bitz (Exchange):
         utcDate = utcDate.split('T')
         utcDate = utcDate[0] + ' ' + trade['t'] + '+08'
         timestamp = self.parse8601(utcDate)
-        price = self.safe_float(trade, 'p')
-        amount = self.safe_float(trade, 'n')
+        price = float(trade['p'])
+        amount = float(trade['n'])
         symbol = market['symbol']
         cost = self.price_to_precision(symbol, amount * price)
         return {
@@ -283,45 +245,26 @@ class bitz (Exchange):
             'coin': market['id'],
             'type': self.timeframes[timeframe],
         }, params))
-        ohlcv = json.loads(response['data']['datas']['data'])
+        ohlcv = self.unjson(response['data']['datas']['data'])
         return self.parse_ohlcvs(ohlcv, market, timeframe, since, limit)
 
-    def parse_order(self, order, market=None):
+    def parse_order(self, order, market):
         symbol = None
-        if market is not None:
+        if market:
             symbol = market['symbol']
-        side = self.safe_string(order, 'side')
-        if side is None:
-            side = self.safe_string(order, 'type')
-            if side is not None:
-                side = 'buy' if (side == 'in') else 'sell'
-            if side is None:
-                side = self.safe_string(order, 'flag')
-        amount = self.safe_float(order, 'number')
-        remaining = self.safe_float(order, 'numberover')
-        filled = None
-        if amount is not None:
-            if remaining is not None:
-                filled = amount - remaining
-        timestamp = None
-        iso8601 = None
-        if 'datetime' in order:
-            timestamp = self.parse8601(order['datetime'])
-            iso8601 = self.iso8601(timestamp)
         return {
             'id': order['id'],
-            'datetime': iso8601,
-            'timestamp': timestamp,
-            'lastTradeTimestamp': None,
+            'datetime': None,
+            'timestamp': None,
             'status': 'open',
             'symbol': symbol,
             'type': 'limit',
-            'side': side,
+            'side': order['type'],
             'price': order['price'],
             'cost': None,
             'amount': order['number'],
-            'filled': filled,
-            'remaining': remaining,
+            'filled': None,
+            'remaining': None,
             'trades': None,
             'fee': None,
             'info': order,
@@ -330,25 +273,21 @@ class bitz (Exchange):
     async def create_order(self, symbol, type, side, amount, price=None, params={}):
         await self.load_markets()
         market = self.market(symbol)
-        orderType = 'in' if (side == 'buy') else 'out'
-        if not self.password:
-            raise ExchangeError(self.id + ' createOrder() requires you to set exchange.password = "YOUR_TRADING_PASSWORD"(a trade password is NOT THE SAME as your login password)')
-        request = {
+        response = await self.privatePostTradeAdd(self.extend({
             'coin': market['id'],
-            'type': orderType,
+            'type': side,
             'price': self.price_to_precision(symbol, price),
-            'number': self.amount_to_string(symbol, amount),
+            'number': self.amount_to_precision(symbol, amount),
             'tradepwd': self.password,
-        }
-        response = await self.privatePostTradeAdd(self.extend(request, params))
-        id = response['data']['id']
-        order = self.parse_order({
-            'id': id,
+        }, params))
+        order = {
+            'id': response['data'],
             'price': price,
             'number': amount,
-            'side': side,
-        }, market)
-        self.orders[id] = order
+            'type': side,
+        }
+        id = order['id']
+        self.orders[id] = self.parse_order(order, market)
         return order
 
     async def cancel_order(self, id, symbol=None, params={}):
@@ -364,15 +303,11 @@ class bitz (Exchange):
         response = await self.privatePostOpenOrders(self.extend({
             'coin': market['id'],
         }, params))
-        return self.parse_orders(response['data'], market, since, limit)
+        return self.parse_orders(response['data'], market)
 
     def nonce(self):
-        currentTimestamp = self.seconds()
-        if currentTimestamp > self.options['lastNonceTimestamp']:
-            self.options['lastNonceTimestamp'] = currentTimestamp
-            self.options['lastNonce'] = 100000
-        self.options['lastNonce'] = self.sum(self.options['lastNonce'], 1)
-        return self.options['lastNonce']
+        milliseconds = self.milliseconds()
+        return(milliseconds % 1000000)
 
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = self.urls['api'] + '/' + path

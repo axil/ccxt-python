@@ -127,6 +127,15 @@ class btctradeua (Exchange):
         response = self.publicGetJapanStatHighSymbol(self.extend({
             'symbol': self.market_id(symbol),
         }, params))
+        orderbook = self.fetch_order_book(symbol)
+        bid = None
+        numBids = len(orderbook['bids'])
+        if numBids > 0:
+            bid = orderbook['bids'][0][0]
+        ask = None
+        numAsks = len(orderbook['asks'])
+        if numAsks > 0:
+            ask = orderbook['asks'][0][0]
         ticker = response['trades']
         timestamp = self.milliseconds()
         result = {
@@ -135,15 +144,13 @@ class btctradeua (Exchange):
             'datetime': self.iso8601(timestamp),
             'high': None,
             'low': None,
-            'bid': None,
-            'bidVolume': None,
-            'ask': None,
-            'askVolume': None,
+            'bid': bid,
+            'ask': ask,
             'vwap': None,
             'open': None,
             'close': None,
+            'first': None,
             'last': None,
-            'previousClose': None,
             'change': None,
             'percentage': None,
             'average': None,
@@ -167,8 +174,7 @@ class btctradeua (Exchange):
                 else:
                     result['baseVolume'] -= candle[5]
             last = tickerLength - 1
-            result['last'] = ticker[last][4]
-            result['close'] = result['last']
+            result['close'] = ticker[last][4]
             result['baseVolume'] = -1 * result['baseVolume']
         return result
 
@@ -228,8 +234,8 @@ class btctradeua (Exchange):
             'symbol': market['symbol'],
             'type': 'limit',
             'side': trade['type'],
-            'price': self.safe_float(trade, 'price'),
-            'amount': self.safe_float(trade, 'amnt_trade'),
+            'price': float(trade['price']),
+            'amount': float(trade['amnt_trade']),
         }
 
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -267,7 +273,6 @@ class btctradeua (Exchange):
             'id': trade['id'],
             'timestamp': timestamp,  # until they fix their timestamp
             'datetime': self.iso8601(timestamp),
-            'lastTradeTimestamp': None,
             'status': 'open',
             'symbol': market['symbol'],
             'type': None,
@@ -281,8 +286,8 @@ class btctradeua (Exchange):
         }
 
     def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
-        if symbol is None:
-            raise ExchangeError(self.id + ' fetchOpenOrders requires a symbol argument')
+        if not symbol:
+            raise ExchangeError(self.id + ' fetchOpenOrders requires a symbol param')
         market = self.market(symbol)
         response = self.privatePostMyOrdersSymbol(self.extend({
             'symbol': market['id'],

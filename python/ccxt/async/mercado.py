@@ -88,26 +88,23 @@ class mercado (Exchange):
         }, params))
         ticker = response['ticker']
         timestamp = int(ticker['date']) * 1000
-        last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'high'),
-            'low': self.safe_float(ticker, 'low'),
-            'bid': self.safe_float(ticker, 'buy'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'sell'),
-            'askVolume': None,
+            'high': float(ticker['high']),
+            'low': float(ticker['low']),
+            'bid': float(ticker['buy']),
+            'ask': float(ticker['sell']),
             'vwap': None,
             'open': None,
-            'close': last,
-            'last': last,
-            'previousClose': None,
+            'close': None,
+            'first': None,
+            'last': float(ticker['last']),
             'change': None,
             'percentage': None,
             'average': None,
-            'baseVolume': self.safe_float(ticker, 'vol'),
+            'baseVolume': float(ticker['vol']),
             'quoteVolume': None,
             'info': ticker,
         }
@@ -129,17 +126,9 @@ class mercado (Exchange):
 
     async def fetch_trades(self, symbol, since=None, limit=None, params={}):
         market = self.market(symbol)
-        method = 'publicGetCoinTrades'
-        request = {
+        response = await self.publicGetCoinTrades(self.extend({
             'coin': market['base'],
-        }
-        if since is not None:
-            method += 'From'
-            request['from'] = int(since / 1000)
-        to = self.safe_integer(params, 'to')
-        if to is not None:
-            method += 'To'
-        response = await getattr(self, method)(self.extend(request, params))
+        }, params))
         return self.parse_trades(response, market, since, limit)
 
     async def fetch_balance(self, params={}):
@@ -201,7 +190,7 @@ class mercado (Exchange):
         if 'updated_timestamp' in order:
             timestamp = int(order['updated_timestamp']) * 1000
         fee = {
-            'cost': self.safe_float(order, 'fee'),
+            'cost': float(order['fee']),
             'currency': market['quote'],
         }
         price = self.safe_float(order, 'limit_price')
@@ -216,7 +205,6 @@ class mercado (Exchange):
             'id': str(order['order_id']),
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'lastTradeTimestamp': None,
             'symbol': symbol,
             'type': 'limit',
             'side': side,
@@ -244,7 +232,6 @@ class mercado (Exchange):
         return self.parse_order(response['response_data']['order'])
 
     async def withdraw(self, currency, amount, address, tag=None, params={}):
-        self.check_address(address)
         await self.load_markets()
         request = {
             'coin': currency,
@@ -267,11 +254,8 @@ class mercado (Exchange):
 
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = self.urls['api'][api] + '/'
-        query = self.omit(params, self.extract_params(path))
         if api == 'public':
             url += self.implode_params(path, params)
-            if query:
-                url += '?' + self.urlencode(query)
         else:
             self.check_required_credentials()
             url += self.version + '/'

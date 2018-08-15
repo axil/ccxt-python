@@ -20,10 +20,6 @@ class getbtc (_1btcxe):
                 'www': 'https://getbtc.org',
                 'doc': 'https://getbtc.org/api-docs.php',
             },
-            'has': {
-                'fetchTrades': False,
-                'fetchOHLCV': False,
-            },
             'fees': {
                 'trading': {
                     'taker': 0.20 / 100,

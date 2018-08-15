@@ -56,9 +56,6 @@ class braziliex (Exchange):
                     ],
                 },
             },
-            'commonCurrencies': {
-                'EPC': 'Epacoin',
-            },
             'fees': {
                 'trading': {
                     'maker': 0.005,
@@ -185,27 +182,24 @@ class braziliex (Exchange):
         symbol = market['symbol']
         timestamp = ticker['date']
         ticker = ticker['ticker']
-        last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'highestBid24'),
-            'low': self.safe_float(ticker, 'lowestAsk24'),
-            'bid': self.safe_float(ticker, 'highestBid'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'lowestAsk'),
-            'askVolume': None,
+            'high': float(ticker['highestBid24']),
+            'low': float(ticker['lowestAsk24']),
+            'bid': float(ticker['highestBid']),
+            'ask': float(ticker['lowestAsk']),
             'vwap': None,
             'open': None,
-            'close': last,
-            'last': last,
-            'previousClose': None,
-            'change': self.safe_float(ticker, 'percentChange'),
+            'close': None,
+            'first': None,
+            'last': float(ticker['last']),
+            'change': float(ticker['percentChange']),
             'percentage': None,
             'average': None,
-            'baseVolume': self.safe_float(ticker, 'baseVolume24'),
-            'quoteVolume': self.safe_float(ticker, 'quoteVolume24'),
+            'baseVolume': float(ticker['baseVolume24']),
+            'quoteVolume': float(ticker['quoteVolume24']),
             'info': ticker,
         }
 
@@ -251,10 +245,10 @@ class braziliex (Exchange):
             timestamp = self.parse8601(trade['date_exec'])
         else:
             timestamp = self.parse8601(trade['date'])
-        price = self.safe_float(trade, 'price')
-        amount = self.safe_float(trade, 'amount')
+        price = float(trade['price'])
+        amount = float(trade['amount'])
         symbol = market['symbol']
-        cost = self.safe_float(trade, 'total')
+        cost = float(trade['total'])
         orderId = self.safe_string(trade, 'order_number')
         return {
             'timestamp': timestamp,
@@ -309,7 +303,7 @@ class braziliex (Exchange):
         timestamp = self.safe_value(order, 'timestamp')
         if not timestamp:
             timestamp = self.parse8601(order['date'])
-        price = self.safe_float(order, 'price')
+        price = float(order['price'])
         cost = self.safe_float(order, 'total', 0.0)
         amount = self.safe_float(order, 'amount')
         filledPercentage = self.safe_float(order, 'progress')
@@ -322,7 +316,6 @@ class braziliex (Exchange):
             'id': order['order_number'],
             'datetime': self.iso8601(timestamp),
             'timestamp': timestamp,
-            'lastTradeTimestamp': None,
             'status': 'open',
             'symbol': symbol,
             'type': 'limit',
@@ -405,7 +398,8 @@ class braziliex (Exchange):
             'currency': currency['id'],
         }, params))
         address = self.safe_string(response, 'deposit_address')
-        self.check_address(address)
+        if not address:
+            raise ExchangeError(self.id + ' fetchDepositAddress failed: ' + self.last_http_response)
         tag = self.safe_string(response, 'payment_id')
         return {
             'currency': code,

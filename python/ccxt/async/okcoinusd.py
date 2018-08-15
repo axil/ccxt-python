@@ -51,8 +51,8 @@ class okcoinusd (Exchange):
             'api': {
                 'web': {
                     'get': [
-                        'spot/markets/currencies',
-                        'spot/markets/products',
+                        'markets/currencies',
+                        'markets/products',
                     ],
                 },
                 'public': {
@@ -85,7 +85,6 @@ class okcoinusd (Exchange):
                         'cancel_order',
                         'cancel_otc_order',
                         'cancel_withdraw',
-                        'funds_transfer',
                         'future_batch_trade',
                         'future_cancel',
                         'future_devolve',
@@ -110,7 +109,6 @@ class okcoinusd (Exchange):
                         'trade',
                         'trade_history',
                         'trade_otc_order',
-                        'wallet_info',
                         'withdraw',
                         'withdraw_info',
                         'unrepayments_info',
@@ -138,9 +136,7 @@ class okcoinusd (Exchange):
                 },
             },
             'exceptions': {
-                '1009': OrderNotFound,  # for spot markets, cancelling closed order
-                '1051': OrderNotFound,  # for spot markets, cancelling "just closed" order
-                '1019': OrderNotFound,  # order closed?
+                '1009': OrderNotFound,  # for spot markets
                 '20015': OrderNotFound,  # for future markets
                 '1013': InvalidOrder,  # no contract type(PR-1101)
                 '1027': InvalidOrder,  # createLimitBuyOrder(symbol, 0, 0): Incorrect parameter may exceeded limits
@@ -150,27 +146,10 @@ class okcoinusd (Exchange):
                 '10005': AuthenticationError,  # bad apiKey
                 '10008': ExchangeError,  # Illegal URL parameter
             },
-            'options': {
-                'warnOnFetchOHLCVLimitArgument': True,
-                'fiats': ['USD', 'CNY'],
-                'futures': {
-                    'BCH': True,
-                    'BTC': True,
-                    'BTG': True,
-                    'EOS': True,
-                    'ETC': True,
-                    'ETH': True,
-                    'LTC': True,
-                    'NEO': True,
-                    'QTUM': True,
-                    'USDT': True,
-                    'XUC': True,
-                },
-            },
         })
 
     async def fetch_markets(self):
-        response = await self.webGetSpotMarketsProducts()
+        response = await self.webGetMarketsProducts()
         markets = response['data']
         result = []
         for i in range(0, len(markets)):
@@ -188,9 +167,6 @@ class okcoinusd (Exchange):
             lot = math.pow(10, -precision['amount'])
             minAmount = markets[i]['minTradeSize']
             minPrice = math.pow(10, -precision['price'])
-            active = (markets[i]['online'] != 0)
-            baseNumericId = markets[i]['baseCurrency']
-            quoteNumericId = markets[i]['quoteCurrency']
             market = self.extend(self.fees['trading'], {
                 'id': id,
                 'symbol': symbol,
@@ -198,14 +174,12 @@ class okcoinusd (Exchange):
                 'quote': quote,
                 'baseId': baseId,
                 'quoteId': quoteId,
-                'baseNumericId': baseNumericId,
-                'quoteNumericId': quoteNumericId,
                 'info': markets[i],
                 'type': 'spot',
                 'spot': True,
                 'future': False,
                 'lot': lot,
-                'active': active,
+                'active': True,
                 'precision': precision,
                 'limits': {
                     'amount': {
@@ -223,20 +197,15 @@ class okcoinusd (Exchange):
                 },
             })
             result.append(market)
-            if (self.has['futures']) and(market['base'] in list(self.options['futures'].keys())):
-                fiats = self.options['fiats']
-                for j in range(0, len(fiats)):
-                    fiat = fiats[j]
-                    lowercaseFiat = fiat.lower()
-                    result.append(self.extend(market, {
-                        'quote': fiat,
-                        'symbol': market['base'] + '/' + fiat,
-                        'id': market['base'].lower() + '_' + lowercaseFiat,
-                        'quoteId': lowercaseFiat,
-                        'type': 'future',
-                        'spot': False,
-                        'future': True,
-                    }))
+            if (self.has['futures']) and(market['quote'] == 'USDT'):
+                result.append(self.extend(market, {
+                    'quote': 'USD',
+                    'symbol': market['base'] + '/USD',
+                    'id': market['id'].replace('usdt', 'usd'),
+                    'type': 'future',
+                    'spot': False,
+                    'future': True,
+                }))
         return result
 
     async def fetch_order_book(self, symbol, limit=None, params={}):
@@ -253,7 +222,13 @@ class okcoinusd (Exchange):
             request['contract_type'] = 'this_week'  # next_week, quarter
         method += 'Depth'
         orderbook = await getattr(self, method)(self.extend(request, params))
-        return self.parse_order_book(orderbook)
+        timestamp = self.milliseconds()
+        return {
+            'bids': orderbook['bids'],
+            'asks': self.sort_by(orderbook['asks'], 0),
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+        }
 
     def parse_ticker(self, ticker, market=None):
         timestamp = ticker['timestamp']
@@ -265,26 +240,23 @@ class okcoinusd (Exchange):
                     market = self.markets_by_id[marketId]
         if market:
             symbol = market['symbol']
-        last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'high'),
-            'low': self.safe_float(ticker, 'low'),
-            'bid': self.safe_float(ticker, 'buy'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'sell'),
-            'askVolume': None,
+            'high': float(ticker['high']),
+            'low': float(ticker['low']),
+            'bid': float(ticker['buy']),
+            'ask': float(ticker['sell']),
             'vwap': None,
             'open': None,
-            'close': last,
-            'last': last,
-            'previousClose': None,
+            'close': None,
+            'first': None,
+            'last': float(ticker['last']),
             'change': None,
             'percentage': None,
             'average': None,
-            'baseVolume': self.safe_float(ticker, 'vol'),
+            'baseVolume': float(ticker['vol']),
             'quoteVolume': None,
             'info': ticker,
         }
@@ -301,13 +273,8 @@ class okcoinusd (Exchange):
             request['contract_type'] = 'this_week'  # next_week, quarter
         method += 'Ticker'
         response = await getattr(self, method)(self.extend(request, params))
-        ticker = self.safe_value(response, 'ticker')
-        if ticker is None:
-            raise ExchangeError(self.id + ' fetchTicker returned an empty response: ' + self.json(response))
-        timestamp = self.safe_integer(response, 'date')
-        if timestamp is not None:
-            timestamp *= 1000
-            ticker = self.extend(ticker, {'timestamp': timestamp})
+        timestamp = int(response['date']) * 1000
+        ticker = self.extend(response['ticker'], {'timestamp': timestamp})
         return self.parse_ticker(ticker, market)
 
     def parse_trade(self, trade, market=None):
@@ -323,8 +290,8 @@ class okcoinusd (Exchange):
             'order': None,
             'type': None,
             'side': trade['type'],
-            'price': self.safe_float(trade, 'price'),
-            'amount': self.safe_float(trade, 'amount'),
+            'price': float(trade['price']),
+            'amount': float(trade['amount']),
         }
 
     async def fetch_trades(self, symbol, since=None, limit=None, params={}):
@@ -341,21 +308,7 @@ class okcoinusd (Exchange):
         response = await getattr(self, method)(self.extend(request, params))
         return self.parse_trades(response, market, since, limit)
 
-    def parse_ohlcv(self, ohlcv, market=None, timeframe='1m', since=None, limit=None):
-        numElements = len(ohlcv)
-        volumeIndex = 6 if (numElements > 6) else 5
-        return [
-            ohlcv[0],  # timestamp
-            ohlcv[1],  # Open
-            ohlcv[2],  # High
-            ohlcv[3],  # Low
-            ohlcv[4],  # Close
-            # ohlcv[5],  # quote volume
-            # ohlcv[6],  # base volume
-            ohlcv[volumeIndex],  # okex will return base volume in the 7th element for future markets
-        ]
-
-    async def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
+    async def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=1440, params={}):
         await self.load_markets()
         market = self.market(symbol)
         method = 'publicGet'
@@ -368,9 +321,7 @@ class okcoinusd (Exchange):
             request['contract_type'] = 'this_week'  # next_week, quarter
         method += 'Kline'
         if limit is not None:
-            if self.options['warnOnFetchOHLCVLimitArgument']:
-                raise ExchangeError(self.id + ' fetchOHLCV counts "limit" candles from current time backwards, therefore the "limit" argument for ' + self.id + ' is disabled. Set ' + self.id + '.options["warnOnFetchOHLCVLimitArgument"] = False to suppress self warning message.')
-            request['size'] = int(limit)  # max is 1440 candles
+            request['size'] = int(limit)
         if since is not None:
             request['since'] = since
         else:
@@ -426,24 +377,9 @@ class okcoinusd (Exchange):
         params = self.omit(params, 'cost')
         method += 'Trade'
         response = await getattr(self, method)(self.extend(order, params))
-        timestamp = self.milliseconds()
         return {
             'info': response,
             'id': str(response['order_id']),
-            'timestamp': timestamp,
-            'datetime': self.iso8601(timestamp),
-            'lastTradeTimestamp': None,
-            'status': None,
-            'symbol': symbol,
-            'type': type,
-            'side': side,
-            'price': price,
-            'amount': amount,
-            'filled': None,
-            'remaining': None,
-            'cost': None,
-            'trades': None,
-            'fee': None,
         }
 
     async def cancel_order(self, id, symbol=None, params={}):
@@ -470,25 +406,12 @@ class okcoinusd (Exchange):
         if status == 0:
             return 'open'
         if status == 1:
-            return 'open'
+            return 'partial'
         if status == 2:
             return 'closed'
-        if status == 3:
-            return 'open'
         if status == 4:
             return 'canceled'
         return status
-
-    def parse_order_side(self, side):
-        if side == 1:
-            return 'buy'  # open long position
-        if side == 2:
-            return 'sell'  # open short position
-        if side == 3:
-            return 'sell'  # liquidate long position
-        if side == 4:
-            return 'buy'  # liquidate short position
-        return side
 
     def parse_order(self, order, market=None):
         side = None
@@ -497,16 +420,9 @@ class okcoinusd (Exchange):
             if (order['type'] == 'buy') or (order['type'] == 'sell'):
                 side = order['type']
                 type = 'limit'
-            elif order['type'] == 'buy_market':
-                side = 'buy'
-                type = 'market'
-            elif order['type'] == 'sell_market':
-                side = 'sell'
-                type = 'market'
             else:
-                side = self.parse_order_side(order['type'])
-                if ('contract_name' in list(order.keys())) or ('lever_rate' in list(order.keys())):
-                    type = 'margin'
+                side = 'buy' if (order['type'] == 'buy_market') else 'sell'
+                type = 'market'
         status = self.parse_order_status(order['status'])
         symbol = None
         if not market:
@@ -519,21 +435,16 @@ class okcoinusd (Exchange):
         createDateField = self.get_create_date_field()
         if createDateField in order:
             timestamp = order[createDateField]
-        amount = self.safe_float(order, 'amount')
-        filled = self.safe_float(order, 'deal_amount')
+        amount = order['amount']
+        filled = order['deal_amount']
         remaining = amount - filled
-        if type == 'market':
-            remaining = 0
-        average = self.safe_float(order, 'avg_price')
-        # https://github.com/ccxt/ccxt/issues/2452
-        average = self.safe_float(order, 'price_avg', average)
+        average = order['avg_price']
         cost = average * filled
         result = {
             'info': order,
             'id': str(order['order_id']),
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'lastTradeTimestamp': None,
             'symbol': symbol,
             'type': type,
             'side': side,
@@ -577,8 +488,7 @@ class okcoinusd (Exchange):
         method += 'OrderInfo'
         response = await getattr(self, method)(self.extend(request, params))
         ordersField = self.get_orders_field()
-        numOrders = len(response[ordersField])
-        if numOrders > 0:
+        if len(response[ordersField]) > 0:
             return self.parse_order(response[ordersField][0])
         raise OrderNotFound(self.id + ' order ' + id + ' not found')
 
@@ -610,7 +520,6 @@ class okcoinusd (Exchange):
                 method += 'OrdersInfo'
                 request = self.extend(request, {
                     'type': status,
-                    'order_id': params['order_id'],
                 })
             else:
                 method += 'OrderHistory'
@@ -626,30 +535,27 @@ class okcoinusd (Exchange):
 
     async def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
         open = 0  # 0 for unfilled orders, 1 for filled orders
-        return await self.fetch_orders(symbol, since, limit, self.extend({
+        return await self.fetch_orders(symbol, None, None, self.extend({
             'status': open,
         }, params))
 
     async def fetch_closed_orders(self, symbol=None, since=None, limit=None, params={}):
         closed = 1  # 0 for unfilled orders, 1 for filled orders
-        orders = await self.fetch_orders(symbol, since, limit, self.extend({
+        orders = await self.fetch_orders(symbol, None, None, self.extend({
             'status': closed,
         }, params))
-        return orders
+        return self.filter_by(orders, 'status', 'closed')
 
     async def withdraw(self, code, amount, address, tag=None, params={}):
-        self.check_address(address)
         await self.load_markets()
         currency = self.currency(code)
         # if amount < 0.01:
         #     raise ExchangeError(self.id + ' withdraw() requires amount > 0.01')
-        # for some reason they require to supply a pair of currencies for withdrawing one currency
-        currencyId = currency['id'] + '_usd'
         request = {
-            'symbol': currencyId,
+            'symbol': currency['id'],
             'withdraw_address': address,
             'withdraw_amount': amount,
-            'target': 'address',  # or 'okcn', 'okcom', 'okex'
+            'target': 'address',  # or okcn, okcom, okex
         }
         query = params
         if 'chargefee' in query:
@@ -678,9 +584,7 @@ class okcoinusd (Exchange):
         url = '/'
         if api != 'web':
             url += self.version + '/'
-        url += path
-        if api != 'web':
-            url += self.extension
+        url += path + self.extension
         if api == 'private':
             self.check_required_credentials()
             query = self.keysort(self.extend({

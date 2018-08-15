@@ -6,9 +6,6 @@
 from ccxt.base.exchange import Exchange
 import json
 from ccxt.base.errors import ExchangeError
-from ccxt.base.errors import AuthenticationError
-from ccxt.base.errors import PermissionDenied
-from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import DDoSProtection
 
 
@@ -26,8 +23,6 @@ class bitmex (Exchange):
                 'CORS': False,
                 'fetchOHLCV': True,
                 'withdraw': True,
-                'editOrder': True,
-                'fetchOrder': True,
                 'fetchOrders': True,
                 'fetchOpenOrders': True,
                 'fetchClosedOrders': True,
@@ -47,7 +42,6 @@ class bitmex (Exchange):
                     'https://www.bitmex.com/app/apiOverview',
                     'https://github.com/BitMEX/api-connectors/tree/master/official-http',
                 ],
-                'fees': 'https://www.bitmex.com/app/fees',
             },
             'api': {
                 'public': {
@@ -135,13 +129,6 @@ class bitmex (Exchange):
                     ],
                 },
             },
-            'exceptions': {
-                'Invalid API Key.': AuthenticationError,
-                'Access Denied': PermissionDenied,
-            },
-            'options': {
-                'fetchTickerQuotes': True,
-            },
         })
 
     def fetch_markets(self):
@@ -170,33 +157,16 @@ class bitmex (Exchange):
             else:
                 future = True
                 type = 'future'
-            precision = {
-                'amount': None,
-                'price': None,
-            }
-            if market['lotSize']:
-                precision['amount'] = self.precision_from_string(self.truncate_to_string(market['lotSize'], 16))
-            if market['tickSize']:
-                precision['price'] = self.precision_from_string(self.truncate_to_string(market['tickSize'], 16))
+            maker = market['makerFee']
+            taker = market['takerFee']
             result.append({
                 'id': id,
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
                 'active': active,
-                'precision': precision,
-                'limits': {
-                    'amount': {
-                        'min': market['lotSize'],
-                        'max': market['maxOrderQty'],
-                    },
-                    'price': {
-                        'min': market['tickSize'],
-                        'max': market['maxPrice'],
-                    },
-                },
-                'taker': market['takerFee'],
-                'maker': market['makerFee'],
+                'taker': taker,
+                'maker': maker,
                 'type': type,
                 'spot': False,
                 'swap': swap,
@@ -228,19 +198,15 @@ class bitmex (Exchange):
 
     def fetch_order_book(self, symbol, limit=None, params={}):
         self.load_markets()
-        market = self.market(symbol)
-        request = {
-            'symbol': market['id'],
-        }
-        if limit is not None:
-            request['depth'] = limit
-        orderbook = self.publicGetOrderBookL2(self.extend(request, params))
+        orderbook = self.publicGetOrderBookL2(self.extend({
+            'symbol': self.market_id(symbol),
+        }, params))
+        timestamp = self.milliseconds()
         result = {
             'bids': [],
             'asks': [],
-            'timestamp': None,
-            'datetime': None,
-            'nonce': None,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
         }
         for o in range(0, len(orderbook)):
             order = orderbook[o]
@@ -252,37 +218,26 @@ class bitmex (Exchange):
         result['asks'] = self.sort_by(result['asks'], 0)
         return result
 
-    def fetch_order(self, id, symbol=None, params={}):
-        filter = {'filter': {'orderID': id}}
-        result = self.fetch_orders(symbol, None, None, self.deep_extend(filter, params))
-        numResults = len(result)
-        if numResults == 1:
-            return result[0]
-        raise OrderNotFound(self.id + ': The order ' + id + ' not found.')
-
     def fetch_orders(self, symbol=None, since=None, limit=None, params={}):
         self.load_markets()
         market = None
-        request = {}
+        filter = {}
         if symbol is not None:
             market = self.market(symbol)
-            request['symbol'] = market['id']
-        if since is not None:
-            request['startTime'] = self.iso8601(since)
-        if limit is not None:
-            request['count'] = limit
-        request = self.deep_extend(request, params)
+            filter['symbol'] = market['id']
+        request = self.deep_extend({
+            'filter': filter,
+        }, params)
         # why the hassle? urlencode in python is kinda broken for nested dicts.
         # E.g. self.urlencode({"filter": {"open": True}}) will return "filter={'open':+True}"
         # Bitmex doesn't like that. Hence resorting to self hack.
-        if 'filter' in request:
-            request['filter'] = self.json(request['filter'])
+        request['filter'] = self.json(request['filter'])
         response = self.privateGetOrder(request)
         return self.parse_orders(response, market, since, limit)
 
     def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
         filter_params = {'filter': {'open': True}}
-        return self.fetch_orders(symbol, since, limit, self.deep_extend(filter_params, params))
+        return self.fetch_orders(symbol, since, limit, self.extend(filter_params, params))
 
     def fetch_closed_orders(self, symbol=None, since=None, limit=None, params={}):
         # Bitmex barfs if you set 'open': False in the filter...
@@ -301,45 +256,35 @@ class bitmex (Exchange):
             'count': 1,
             'reverse': True,
         }, params)
-        bid = None
-        ask = None
-        if self.options['fetchTickerQuotes']:
-            quotes = self.publicGetQuoteBucketed(request)
-            quotesLength = len(quotes)
-            quote = quotes[quotesLength - 1]
-            bid = self.safe_float(quote, 'bidPrice')
-            ask = self.safe_float(quote, 'askPrice')
+        quotes = self.publicGetQuoteBucketed(request)
+        quotesLength = len(quotes)
+        quote = quotes[quotesLength - 1]
         tickers = self.publicGetTradeBucketed(request)
         ticker = tickers[0]
         timestamp = self.milliseconds()
-        open = self.safe_float(ticker, 'open')
-        close = self.safe_float(ticker, 'close')
-        change = close - open
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'high'),
-            'low': self.safe_float(ticker, 'low'),
-            'bid': bid,
-            'bidVolume': None,
-            'ask': ask,
-            'askVolume': None,
-            'vwap': self.safe_float(ticker, 'vwap'),
-            'open': open,
-            'close': close,
-            'last': close,
-            'previousClose': None,
-            'change': change,
-            'percentage': change / open * 100,
-            'average': self.sum(open, close) / 2,
-            'baseVolume': self.safe_float(ticker, 'homeNotional'),
-            'quoteVolume': self.safe_float(ticker, 'foreignNotional'),
+            'high': float(ticker['high']),
+            'low': float(ticker['low']),
+            'bid': float(quote['bidPrice']),
+            'ask': float(quote['askPrice']),
+            'vwap': float(ticker['vwap']),
+            'open': None,
+            'close': float(ticker['close']),
+            'first': None,
+            'last': None,
+            'change': None,
+            'percentage': None,
+            'average': None,
+            'baseVolume': float(ticker['homeNotional']),
+            'quoteVolume': float(ticker['foreignNotional']),
             'info': ticker,
         }
 
     def parse_ohlcv(self, ohlcv, market=None, timeframe='1m', since=None, limit=None):
-        timestamp = self.parse8601(ohlcv['timestamp']) - self.parse_timeframe(timeframe) * 1000
+        timestamp = self.parse8601(ohlcv['timestamp'])
         return [
             timestamp,
             ohlcv['open'],
@@ -368,13 +313,12 @@ class bitmex (Exchange):
             # 'reverse': False,  # True == newest first
             # 'endTime': '',    # ending date filter for results
         }
-        if limit is not None:
-            request['count'] = limit  # default 100, max 500
-        # if since is not set, they will return candles starting from 2017-01-01
         if since is not None:
             ymdhms = self.ymdhms(since)
             ymdhm = ymdhms[0:16]
             request['startTime'] = ymdhm  # starting date filter for results
+        if limit is not None:
+            request['count'] = limit  # default 100
         response = self.publicGetTradeBucketed(self.extend(request, params))
         return self.parse_ohlcvs(response, market, timeframe, since, limit)
 
@@ -423,29 +367,24 @@ class bitmex (Exchange):
                 market = self.markets_by_id[id]
                 symbol = market['symbol']
         datetime_value = None
-        timestamp = None
-        iso8601 = None
         if 'timestamp' in order:
             datetime_value = order['timestamp']
         elif 'transactTime' in order:
             datetime_value = order['transactTime']
-        if datetime_value is not None:
-            timestamp = self.parse8601(datetime_value)
-            iso8601 = self.iso8601(timestamp)
-        price = self.safe_float(order, 'price')
-        amount = self.safe_float(order, 'orderQty')
+        price = float(order['price'])
+        amount = float(order['orderQty'])
         filled = self.safe_float(order, 'cumQty', 0.0)
         remaining = max(amount - filled, 0.0)
         cost = None
         if price is not None:
             if filled is not None:
                 cost = price * filled
+        timestamp = self.parse8601(datetime_value)
         result = {
             'info': order,
             'id': str(order['orderID']),
             'timestamp': timestamp,
-            'datetime': iso8601,
-            'lastTradeTimestamp': None,
+            'datetime': datetime_value,
             'symbol': symbol,
             'type': order['ordType'].lower(),
             'side': order['side'].lower(),
@@ -462,57 +401,30 @@ class bitmex (Exchange):
     def fetch_trades(self, symbol, since=None, limit=None, params={}):
         self.load_markets()
         market = self.market(symbol)
-        request = {
+        response = self.publicGetTrade(self.extend({
             'symbol': market['id'],
-        }
-        if since is not None:
-            request['startTime'] = self.iso8601(since)
-        if limit is not None:
-            request['count'] = limit
-        response = self.publicGetTrade(self.extend(request, params))
-        return self.parse_trades(response, market)
+        }, params))
+        return self.parse_trades(response, market, since, limit)
 
     def create_order(self, symbol, type, side, amount, price=None, params={}):
         self.load_markets()
-        request = {
+        order = {
             'symbol': self.market_id(symbol),
             'side': self.capitalize(side),
             'orderQty': amount,
             'ordType': self.capitalize(type),
         }
-        if price is not None:
-            request['price'] = price
-        response = self.privatePostOrder(self.extend(request, params))
-        order = self.parse_order(response)
-        id = order['id']
-        self.orders[id] = order
-        return self.extend({'info': response}, order)
-
-    def edit_order(self, id, symbol, type, side, amount=None, price=None, params={}):
-        self.load_markets()
-        request = {
-            'orderID': id,
+        if type == 'limit':
+            order['price'] = price
+        response = self.privatePostOrder(self.extend(order, params))
+        return {
+            'info': response,
+            'id': response['orderID'],
         }
-        if amount is not None:
-            request['orderQty'] = amount
-        if price is not None:
-            request['price'] = price
-        response = self.privatePutOrder(self.extend(request, params))
-        order = self.parse_order(response)
-        self.orders[order['id']] = order
-        return self.extend({'info': response}, order)
 
     def cancel_order(self, id, symbol=None, params={}):
         self.load_markets()
-        response = self.privateDeleteOrder(self.extend({'orderID': id}, params))
-        order = response[0]
-        error = self.safe_string(order, 'error')
-        if error is not None:
-            if error.find('Unable to cancel order due to existing state') >= 0:
-                raise OrderNotFound(self.id + ' cancelOrder() failed: ' + error)
-        order = self.parse_order(order)
-        self.orders[order['id']] = order
-        return self.extend({'info': response}, order)
+        return self.privateDeleteOrder({'orderID': id})
 
     def is_fiat(self, currency):
         if currency == 'EUR':
@@ -522,7 +434,6 @@ class bitmex (Exchange):
         return False
 
     def withdraw(self, currency, amount, address, tag=None, params={}):
-        self.check_address(address)
         self.load_markets()
         if currency != 'BTC':
             raise ExchangeError(self.id + ' supoprts BTC withdrawals only, other currencies coming soon...')
@@ -548,13 +459,8 @@ class bitmex (Exchange):
                     response = json.loads(body)
                     if 'error' in response:
                         if 'message' in response['error']:
-                            feedback = self.id + ' ' + self.json(response)
-                            message = self.safe_value(response['error'], 'message')
-                            exceptions = self.exceptions
-                            if message is not None:
-                                if message in exceptions:
-                                    raise exceptions[message](feedback)
-                            raise ExchangeError(feedback)
+                            # stub code, need proper handling
+                            raise ExchangeError(self.id + ' ' + self.json(response))
 
     def nonce(self):
         return self.milliseconds()

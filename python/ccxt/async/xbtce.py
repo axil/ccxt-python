@@ -6,8 +6,8 @@
 from ccxt.async.base.exchange import Exchange
 import hashlib
 from ccxt.base.errors import ExchangeError
-from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import NotSupported
+from ccxt.base.errors import AuthenticationError
 
 
 class xbtce (Exchange):
@@ -23,6 +23,7 @@ class xbtce (Exchange):
                 'publicAPI': False,
                 'CORS': False,
                 'fetchTickers': True,
+                'fetchOHLCV': False,
                 'createMarketOrder': False,
             },
             'urls': {
@@ -181,14 +182,12 @@ class xbtce (Exchange):
             'high': ticker['DailyBestBuyPrice'],
             'low': ticker['DailyBestSellPrice'],
             'bid': ticker['BestBid'],
-            'bidVolume': None,
             'ask': ticker['BestAsk'],
-            'askVolume': None,
             'vwap': None,
             'open': None,
-            'close': last,
+            'close': None,
+            'first': None,
             'last': last,
-            'previousClose': None,
             'change': None,
             'percentage': None,
             'average': None,
@@ -272,7 +271,7 @@ class xbtce (Exchange):
         await self.load_markets()
         if type == 'market':
             raise ExchangeError(self.id + ' allows limit orders only')
-        response = await self.privatePostTrade(self.extend({
+        response = await self.tapiPostTrade(self.extend({
             'pair': self.market_id(symbol),
             'type': side,
             'amount': amount,

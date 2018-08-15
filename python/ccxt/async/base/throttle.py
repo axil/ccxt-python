@@ -20,6 +20,7 @@ def throttle(config=None):
         'refillRate': 0.001,
         'defaultCost': 1.000,
         'capacity': 1.000,
+        'maxCapacity': 100,
     }
 
     cfg.update(config)

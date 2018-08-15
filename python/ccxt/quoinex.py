@@ -27,6 +27,6 @@ class quoinex (qryptos):
                     'https://developers.quoine.com',
                     'https://developers.quoine.com/v2',
                 ],
-                'fees': 'https://news.quoinex.com/fees/',
+                'fees': 'https://quoine.zendesk.com/hc/en-us/articles/115011281488-Fees',
             },
         })

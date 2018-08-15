@@ -2,16 +2,13 @@
 
 import argparse
 import asyncio
-import json
-# import logging
 import os
 import sys
-import time  # noqa: F401
+import json
+import time
 from os import _exit
 from traceback import format_tb
 
-# ------------------------------------------------------------------------------
-# logging.basicConfig(level=logging.INFO)
 # ------------------------------------------------------------------------------
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -116,7 +113,7 @@ sys.excepthook = handle_all_unhandled_exceptions
 async def test_order_book(exchange, symbol):
     if exchange.has['fetchOrderBook']:
         delay = int(exchange.rateLimit / 1000)
-        await asyncio.sleep(delay)
+        time.sleep(delay)
         # dump(green(exchange.id), green(symbol), 'fetching order book...')
         orderbook = await exchange.fetch_order_book(symbol)
         dump(
@@ -137,7 +134,7 @@ async def test_order_book(exchange, symbol):
 async def test_ohlcv(exchange, symbol):
     if exchange.has['fetchOHLCV']:
         delay = int(exchange.rateLimit / 1000)
-        await asyncio.sleep(delay)
+        time.sleep(delay)
         ohlcvs = await exchange.fetch_ohlcv(symbol)
         dump(green(exchange.id), 'fetched', green(len(ohlcvs)), 'OHLCVs')
     else:
@@ -149,7 +146,7 @@ async def test_ohlcv(exchange, symbol):
 async def test_tickers(exchange, symbol):
     if exchange.has['fetchTickers']:
         delay = int(exchange.rateLimit / 1000)
-        await asyncio.sleep(delay)
+        time.sleep(delay)
         tickers = None
         try:
             # dump(green(exchange.id), 'fetching all tickers at once...')
@@ -205,7 +202,8 @@ async def test_l2_order_books_async(exchange):
 async def test_ticker(exchange, symbol):
     if exchange.has['fetchTicker']:
         delay = int(exchange.rateLimit / 1000)
-        await asyncio.sleep(delay)
+        time.sleep(delay)
+        # dump(green(exchange.id), green(symbol), 'fetching ticker...')
         ticker = await exchange.fetch_ticker(symbol)
         dump(
             green(exchange.id),
@@ -226,7 +224,7 @@ async def test_ticker(exchange, symbol):
 async def test_trades(exchange, symbol):
     if exchange.has['fetchTrades']:
         delay = int(exchange.rateLimit / 1000)
-        await asyncio.sleep(delay)
+        time.sleep(delay)
         # dump(green(exchange.id), green(symbol), 'fetching trades...')
         trades = await exchange.fetch_trades(symbol)
         dump(green(exchange.id), green(symbol), 'fetched', green(len(list(trades))), 'trades')
@@ -296,13 +294,16 @@ async def test_exchange(exchange):
     if 'test' in exchange.urls:
         exchange.urls['api'] = exchange.urls['test']
 
+    # dump(green(exchange.id), 'fetching balance...')
+    # balance = await exchange.fetch_balance()
     await exchange.fetch_balance()
     dump(green(exchange.id), 'fetched balance')
 
-    await asyncio.sleep(exchange.rateLimit / 1000)
+    time.sleep(exchange.rateLimit / 1000)
 
     if exchange.has['fetchOrders']:
         try:
+            # dump(green(exchange.id), 'fetching orders...')
             orders = await exchange.fetch_orders(symbol)
             dump(green(exchange.id), 'fetched', green(str(len(orders))), 'orders')
         except (ccxt.ExchangeError, ccxt.NotSupported) as e:
@@ -364,9 +365,8 @@ async def try_all_proxies(exchange, proxies=['']):
             return True
     # exception
     return False
-
-
 # ------------------------------------------------------------------------------
+
 
 proxies = [
     '',
@@ -390,9 +390,15 @@ for id in ccxt.exchanges:
     exchange_config = {'verbose': argv.verbose}
     if sys.version_info[0] < 3:
         exchange_config.update({'enableRateLimit': True})
-    if id in config:
-        exchange_config.update(config[id])
     exchanges[id] = exchange(exchange_config)
+
+# set up api keys appropriately
+tuples = list(ccxt.Exchange.keysort(config).items())
+for (id, params) in tuples:
+    if id in exchanges:
+        options = list(params.items())
+        for key in params:
+            setattr(exchanges[id], key, params[key])
 
 # ------------------------------------------------------------------------------
 
@@ -404,6 +410,12 @@ async def main():
         exchange = exchanges[argv.exchange]
         symbol = argv.symbol
 
+        if exchange.id in config:
+            if 'skip' in config[exchange.id]:
+                if config[exchange.id]['skip']:
+                    print('skipped.')
+                    sys.exit()
+
         if hasattr(exchange, 'skip') and exchange.skip:
             dump(green(exchange.id), 'skipped')
         else:
@@ -414,11 +426,15 @@ async def main():
                 await try_all_proxies(exchange, proxies)
 
     else:
-        for exchange in sorted(exchanges.values(), key=lambda x: x.id):
-            if hasattr(exchange, 'skip') and exchange.skip:
-                dump(green(exchange.id), 'skipped')
-            else:
-                await try_all_proxies(exchange, proxies)
+
+        tuples = list(ccxt.Exchange.keysort(exchanges).items())
+        for (id, params) in tuples:
+            if id in exchanges:
+                exchange = exchanges[id]
+                if hasattr(exchange, 'skip') and exchange.skip:
+                    dump(green(exchange.id), 'skipped')
+                else:
+                    await try_all_proxies(exchange, proxies)
 
 # ------------------------------------------------------------------------------
 

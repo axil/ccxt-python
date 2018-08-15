@@ -6,7 +6,6 @@
 from ccxt.base.exchange import Exchange
 import base64
 import hashlib
-import math
 from ccxt.base.errors import ExchangeError
 
 
@@ -48,80 +47,36 @@ class btcturk (Exchange):
                         'userTransactions',  # ?offset=0&limit=25&sort=asc
                     ],
                     'post': [
-                        'exchange',
+                        'buy',
                         'cancelOrder',
+                        'sell',
                     ],
                 },
             },
-            'fees': {
-                'trading': {
-                    'maker': 0.002 * 1.18,
-                    'taker': 0.0035 * 1.18,
-                },
+            'markets': {
+                'BTC/TRY': {'id': 'BTCTRY', 'symbol': 'BTC/TRY', 'base': 'BTC', 'quote': 'TRY', 'maker': 0.002 * 1.18, 'taker': 0.0035 * 1.18},
+                'ETH/TRY': {'id': 'ETHTRY', 'symbol': 'ETH/TRY', 'base': 'ETH', 'quote': 'TRY', 'maker': 0.002 * 1.18, 'taker': 0.0035 * 1.18},
+                'ETH/BTC': {'id': 'ETHBTC', 'symbol': 'ETH/BTC', 'base': 'ETH', 'quote': 'BTC', 'maker': 0.002 * 1.18, 'taker': 0.0035 * 1.18},
             },
         })
-
-    def fetch_markets(self):
-        response = self.publicGetTicker()
-        result = []
-        for i in range(0, len(response)):
-            market = response[i]
-            id = market['pair']
-            baseId = id[0:3]
-            quoteId = id[3:6]
-            base = self.common_currency_code(baseId)
-            quote = self.common_currency_code(quoteId)
-            baseId = baseId.lower()
-            quoteId = quoteId.lower()
-            symbol = base + '/' + quote
-            precision = {
-                'amount': 8,
-                'price': 8,
-            }
-            active = True
-            result.append({
-                'id': id,
-                'symbol': symbol,
-                'base': base,
-                'quote': quote,
-                'baseId': baseId,
-                'quoteId': quoteId,
-                'active': active,
-                'info': market,
-                'precision': precision,
-                'limits': {
-                    'amount': {
-                        'min': math.pow(10, -precision['amount']),
-                        'max': None,
-                    },
-                    'price': {
-                        'min': math.pow(10, -precision['price']),
-                        'max': None,
-                    },
-                    'cost': {
-                        'min': None,
-                        'max': None,
-                    },
-                },
-            })
-        return result
 
     def fetch_balance(self, params={}):
         response = self.privateGetBalance()
         result = {'info': response}
-        codes = list(self.currencies.keys())
-        for i in range(0, len(codes)):
-            code = codes[i]
-            currency = self.currencies[code]
-            account = self.account()
-            free = currency['id'] + '_available'
-            total = currency['id'] + '_balance'
-            used = currency['id'] + '_reserved'
-            if free in response:
-                account['free'] = self.safe_float(response, free)
-                account['total'] = self.safe_float(response, total)
-                account['used'] = self.safe_float(response, used)
-            result[code] = account
+        base = {
+            'free': response['bitcoin_available'],
+            'used': response['bitcoin_reserved'],
+            'total': response['bitcoin_balance'],
+        }
+        quote = {
+            'free': response['money_available'],
+            'used': response['money_reserved'],
+            'total': response['money_balance'],
+        }
+        symbol = self.symbols[0]
+        market = self.markets[symbol]
+        result[market['base']] = base
+        result[market['quote']] = quote
         return self.parse_balance(result)
 
     def fetch_order_book(self, symbol, limit=None, params={}):
@@ -137,26 +92,23 @@ class btcturk (Exchange):
         if market:
             symbol = market['symbol']
         timestamp = int(ticker['timestamp']) * 1000
-        last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
-            'high': self.safe_float(ticker, 'high'),
-            'low': self.safe_float(ticker, 'low'),
-            'bid': self.safe_float(ticker, 'bid'),
-            'bidVolume': None,
-            'ask': self.safe_float(ticker, 'ask'),
-            'askVolume': None,
+            'high': float(ticker['high']),
+            'low': float(ticker['low']),
+            'bid': float(ticker['bid']),
+            'ask': float(ticker['ask']),
             'vwap': None,
-            'open': self.safe_float(ticker, 'open'),
-            'close': last,
-            'last': last,
-            'previousClose': None,
+            'open': float(ticker['open']),
+            'close': None,
+            'first': None,
+            'last': float(ticker['last']),
             'change': None,
             'percentage': None,
-            'average': self.safe_float(ticker, 'average'),
-            'baseVolume': self.safe_float(ticker, 'volume'),
+            'average': float(ticker['average']),
+            'baseVolume': float(ticker['volume']),
             'quoteVolume': None,
             'info': ticker,
         }
@@ -226,19 +178,20 @@ class btcturk (Exchange):
         return self.parse_ohlcvs(response, market, timeframe, since, limit)
 
     def create_order(self, symbol, type, side, amount, price=None, params={}):
-        self.load_markets()
+        method = 'privatePost' + self.capitalize(side)
         order = {
-            'PairSymbol': self.market_id(symbol),
-            'OrderType': 0 if (side == 'buy') else 1,
-            'OrderMethod': 1 if (type == 'market') else 0,
+            'Type': 'BuyBtc' if (side == 'buy') else 'SelBtc',
+            'IsMarketOrder': 1 if (type == 'market') else 0,
         }
         if type == 'market':
-            if not('Total' in list(params.keys())):
-                raise ExchangeError(self.id + ' createOrder requires the "Total" extra parameter for market orders(amount and price are both ignored)')
+            if side == 'buy':
+                order['Total'] = amount
+            else:
+                order['Amount'] = amount
         else:
             order['Price'] = price
             order['Amount'] = amount
-        response = self.privatePostExchange(self.extend(order, params))
+        response = getattr(self, method)(self.extend(order, params))
         return {
             'info': response,
             'id': response['id'],
