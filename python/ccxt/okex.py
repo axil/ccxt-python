@@ -16,7 +16,6 @@ class okex (okcoinusd):
             'has': {
                 'CORS': False,
                 'futures': True,
-                'hasFetchTickers': True,
                 'fetchTickers': True,
             },
             'urls': {
@@ -27,20 +26,19 @@ class okex (okcoinusd):
                     'private': 'https://www.okex.com/api',
                 },
                 'www': 'https://www.okex.com',
-                'doc': 'https://www.okex.com/rest_getStarted.html',
+                'doc': 'https://github.com/okcoin-okex/API-docs-OKEx.com',
                 'fees': 'https://www.okex.com/fees.html',
             },
+            'commonCurrencies': {
+                'FAIR': 'FairGame',
+                'HOT': 'Hydro Protocol',
+                'MAG': 'Maggie',
+                'YOYO': 'YOYOW',
+            },
+            'options': {
+                'fetchTickersMethod': 'fetch_tickers_from_api',
+            },
         })
-
-    def common_currency_code(self, currency):
-        currencies = {
-            'FAIR': 'FairGame',
-            'YOYO': 'YOYOW',
-            'NANO': 'XRB',
-        }
-        if currency in currencies:
-            return currencies[currency]
-        return currency
 
     def calculate_fee(self, symbol, type, side, amount, price, takerOrMaker='taker', params={}):
         market = self.markets[symbol]
@@ -72,7 +70,7 @@ class okex (okcoinusd):
                 markets[i]['taker'] = 0.0005
         return markets
 
-    def fetch_tickers(self, symbols=None, params={}):
+    def fetch_tickers_from_api(self, symbols=None, params={}):
         self.load_markets()
         request = {}
         response = self.publicGetTickers(self.extend(request, params))
@@ -90,3 +88,20 @@ class okex (okcoinusd):
             symbol = ticker['symbol']
             result[symbol] = ticker
         return result
+
+    def fetch_tickers_from_web(self, symbols=None, params={}):
+        self.load_markets()
+        request = {}
+        response = self.webGetSpotMarketsTickers(self.extend(request, params))
+        tickers = response['data']
+        result = {}
+        for i in range(0, len(tickers)):
+            ticker = self.parse_ticker(tickers[i])
+            symbol = ticker['symbol']
+            result[symbol] = ticker
+        return result
+
+    def fetch_tickers(self, symbols=None, params={}):
+        method = self.options['fetchTickersMethod']
+        response = getattr(self, method)(symbols, params)
+        return response
