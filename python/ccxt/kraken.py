@@ -27,6 +27,9 @@ from ccxt.base.errors import InvalidNonce
 
 
 class kraken (Exchange):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.commonCurrencies['XDG'] = 'DOGE'
 
     def describe(self):
         return self.deep_extend(super(kraken, self).describe(), {
