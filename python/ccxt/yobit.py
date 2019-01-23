@@ -29,12 +29,12 @@ class yobit (liqui):
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27766910-cdcbfdae-5eea-11e7-9859-03fea873272d.jpg',
                 'api': {
-                    'public': 'https://yobit.net/api',
-                    'private': 'https://yobit.net/tapi',
+                    'public': 'https://yobitex.net/api',
+                    'private': 'https://yobitex.net/tapi',
                 },
-                'www': 'https://www.yobit.net',
-                'doc': 'https://www.yobit.net/en/api/',
-                'fees': 'https://www.yobit.net/en/fees/',
+                'www': 'https://www.yobitex.net',
+                'doc': 'https://www.yobitex.net/en/api/',
+                'fees': 'https://www.yobitex.net/en/fees/',
             },
             'api': {
                 'public': {
