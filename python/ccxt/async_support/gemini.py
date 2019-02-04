@@ -7,6 +7,7 @@ from ccxt.async_support.base.exchange import Exchange
 import base64
 import hashlib
 from ccxt.base.errors import ExchangeError
+from ccxt.base.errors import ArgumentsRequired
 
 
 class gemini (Exchange):
@@ -29,7 +30,11 @@ class gemini (Exchange):
                 'fetchOrders': False,
                 'fetchOpenOrders': True,
                 'fetchClosedOrders': False,
+                'createMarketOrder': False,
                 'withdraw': True,
+                'fetchTransactions': True,
+                'fetchWithdrawals': False,
+                'fetchDeposits': False,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27816857-ce7be644-6096-11e7-82d6-3c257263229c.jpg',
@@ -66,6 +71,7 @@ class gemini (Exchange):
                         'orders',
                         'mytrades',
                         'tradevolume',
+                        'transfers',
                         'balances',
                         'deposit/{currency}/newAddress',
                         'withdraw/{currency}',
@@ -76,13 +82,13 @@ class gemini (Exchange):
             },
             'fees': {
                 'trading': {
-                    'taker': 0.0025,
-                    'maker': 0.0025,
+                    'taker': 0.01,
+                    'maker': 0.01,
                 },
             },
         })
 
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         markets = await self.publicGetSymbols()
         result = []
         for p in range(0, len(markets)):
@@ -103,10 +109,14 @@ class gemini (Exchange):
 
     async def fetch_order_book(self, symbol, limit=None, params={}):
         await self.load_markets()
-        orderbook = await self.publicGetBookSymbol(self.extend({
+        request = {
             'symbol': self.market_id(symbol),
-        }, params))
-        return self.parse_order_book(orderbook, None, 'bids', 'asks', 'price', 'amount')
+        }
+        if limit is not None:
+            request['limit_bids'] = limit
+            request['limit_asks'] = limit
+        response = await self.publicGetBookSymbol(self.extend(request, params))
+        return self.parse_order_book(response, None, 'bids', 'asks', 'price', 'amount')
 
     async def fetch_ticker(self, symbol, params={}):
         await self.load_markets()
@@ -291,7 +301,7 @@ class gemini (Exchange):
 
     async def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
         if symbol is None:
-            raise ExchangeError(self.id + ' fetchMyTrades requires a symbol argument')
+            raise ArgumentsRequired(self.id + ' fetchMyTrades requires a symbol argument')
         await self.load_markets()
         market = self.market(symbol)
         request = {
@@ -320,6 +330,47 @@ class gemini (Exchange):
 
     def nonce(self):
         return self.milliseconds()
+
+    async def fetch_transactions(self, code=None, since=None, limit=None, params={}):
+        await self.load_markets()
+        request = {}
+        response = await self.privatePostTransfers(self.extend(request, params))
+        return self.parseTransactions(response)
+
+    def parse_transaction(self, transaction, currency=None):
+        timestamp = self.safe_integer(transaction, 'timestampms')
+        code = None
+        if currency is None:
+            currencyId = self.safe_string(transaction, 'currency')
+            if currencyId in self.currencies_by_id:
+                currency = self.currencies_by_id[currencyId]
+        if currency is not None:
+            code = currency['code']
+        type = self.safe_string(transaction, 'type')
+        if type is not None:
+            type = type.lower()
+        status = 'pending'
+        # When deposits show as Advanced or Complete they are available for trading.
+        if transaction['status']:
+            status = 'ok'
+        return {
+            'info': transaction,
+            'id': self.safe_string(transaction, 'eid'),
+            'txid': self.safe_string(transaction, 'txHash'),
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'address': None,  # or is it defined?
+            'tag': None,  # or is it defined?
+            'type': type,  # direction of the transaction,('deposit' | 'withdraw')
+            'amount': self.safe_float(transaction, 'amount'),
+            'currency': code,
+            'status': status,
+            'updated': None,
+            'fee': {
+                'cost': None,
+                'rate': None,
+            },
+        }
 
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = '/' + self.version + '/' + self.implode_params(path, params)
@@ -364,5 +415,6 @@ class gemini (Exchange):
         return {
             'currency': code,
             'address': address,
+            'tag': None,
             'info': response,
         }

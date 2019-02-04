@@ -65,7 +65,7 @@ class southxchange (Exchange):
             },
         })
 
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         markets = await self.publicGetMarkets()
         result = []
         for p in range(0, len(markets)):
@@ -83,6 +83,7 @@ class southxchange (Exchange):
                 'quote': quote,
                 'baseId': baseId,
                 'quoteId': quoteId,
+                'active': None,
                 'info': market,
             })
         return result
@@ -280,10 +281,12 @@ class southxchange (Exchange):
             'info': response,
         }
 
-    async def withdraw(self, currency, amount, address, tag=None, params={}):
+    async def withdraw(self, code, amount, address, tag=None, params={}):
         self.check_address(address)
+        await self.load_markets()
+        currency = self.currency(code)
         request = {
-            'currency': currency,
+            'currency': currency['id'],
             'address': address,
             'amount': amount,
         }

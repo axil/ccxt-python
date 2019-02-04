@@ -4,7 +4,6 @@
 # https://github.com/ccxt/ccxt/blob/master/CONTRIBUTING.md#how-to-contribute-code
 
 from ccxt.async_support.liqui import liqui
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
@@ -23,18 +22,21 @@ class yobit (liqui):
             'has': {
                 'createDepositAddress': True,
                 'fetchDepositAddress': True,
+                'fetchDeposits': False,
+                'fetchWithdrawals': False,
+                'fetchTransactions': False,
                 'CORS': False,
                 'withdraw': True,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/27766910-cdcbfdae-5eea-11e7-9859-03fea873272d.jpg',
                 'api': {
-                    'public': 'https://yobitex.net/api',
-                    'private': 'https://yobitex.net/tapi',
+                    'public': 'https://yobit.net/api',
+                    'private': 'https://yobit.net/tapi',
                 },
-                'www': 'https://www.yobitex.net',
-                'doc': 'https://www.yobitex.net/en/api/',
-                'fees': 'https://www.yobitex.net/en/fees/',
+                'www': 'https://www.yobit.net',
+                'doc': 'https://www.yobit.net/en/api/',
+                'fees': 'https://www.yobit.net/en/fees/',
             },
             'api': {
                 'public': {
@@ -87,7 +89,6 @@ class yobit (liqui):
                 'COV': 'Coven Coin',
                 'COVX': 'COV',
                 'CPC': 'Capricoin',
-                'CRC': 'CryCash',
                 'CS': 'CryptoSpots',
                 'DCT': 'Discount',
                 'DGD': 'DarkGoldCoin',
@@ -105,6 +106,7 @@ class yobit (liqui):
                 'GEN': 'Genstake',
                 'GENE': 'Genesiscoin',
                 'GOLD': 'GoldMint',
+                'GOT': 'Giotto Coin',
                 'HTML5': 'HTML',
                 'HYPERX': 'HYPER',
                 'ICN': 'iCoin',
@@ -138,6 +140,7 @@ class yobit (liqui):
             },
             'options': {
                 'fetchOrdersRequiresSymbol': True,
+                'fetchTickersMaxLength': 512,
             },
         })
 
@@ -209,6 +212,40 @@ class yobit (liqui):
             'info': response,
         }
 
+    async def fetch_my_trades(self, symbol=None, since=None, limit=None, params={}):
+        await self.load_markets()
+        market = None
+        # some derived classes use camelcase notation for request fields
+        request = {
+            # 'from': 123456789,  # trade ID, from which the display starts numerical 0(test result: liqui ignores self field)
+            # 'count': 1000,  # the number of trades for display numerical, default = 1000
+            # 'from_id': trade ID, from which the display starts numerical 0
+            # 'end_id': trade ID on which the display ends numerical ∞
+            # 'order': 'ASC',  # sorting, default = DESC(test result: liqui ignores self field, most recent trade always goes last)
+            # 'since': 1234567890,  # UTC start time, default = 0(test result: liqui ignores self field)
+            # 'end': 1234567890,  # UTC end time, default = ∞(test result: liqui ignores self field)
+            # 'pair': 'eth_btc',  # default = all markets
+        }
+        if symbol is not None:
+            market = self.market(symbol)
+            request['pair'] = market['id']
+        if limit is not None:
+            request['count'] = int(limit)
+        if since is not None:
+            request['since'] = int(since / 1000)
+        method = self.options['fetchMyTradesMethod']
+        response = await getattr(self, method)(self.extend(request, params))
+        trades = self.safe_value(response, 'return', {})
+        ids = list(trades.keys())
+        result = []
+        for i in range(0, len(ids)):
+            id = ids[i]
+            trade = self.parse_trade(self.extend(trades[id], {
+                'trade_id': id,
+            }), market)
+            result.append(trade)
+        return self.filter_by_symbol_since_limit(result, symbol, since, limit)
+
     async def withdraw(self, code, amount, address, tag=None, params={}):
         self.check_address(address)
         await self.load_markets()
@@ -223,9 +260,8 @@ class yobit (liqui):
             'id': None,
         }
 
-    def handle_errors(self, code, reason, url, method, headers, body):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         if body[0] == '{':
-            response = json.loads(body)
             if 'success' in response:
                 if not response['success']:
                     if 'error_log' in response:

@@ -7,13 +7,15 @@ from ccxt.async_support.base.exchange import Exchange
 import base64
 import hashlib
 import math
-import json
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
+from ccxt.base.errors import ArgumentsRequired
 from ccxt.base.errors import InsufficientFunds
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import InvalidNonce
+from ccxt.base.decimal_to_precision import ROUND
+from ccxt.base.decimal_to_precision import TRUNCATE
 
 
 class kucoin (Exchange):
@@ -21,8 +23,8 @@ class kucoin (Exchange):
     def describe(self):
         return self.deep_extend(super(kucoin, self).describe(), {
             'id': 'kucoin',
-            'name': 'Kucoin',
-            'countries': ['HK'],  # Hong Kong
+            'name': 'KuCoin',
+            'countries': ['SC'],  # Republic of Seychelles
             'version': 'v1',
             'rateLimit': 2000,
             'userAgent': self.userAgents['chrome'],
@@ -40,6 +42,7 @@ class kucoin (Exchange):
                 'fetchMyTrades': 'emulated',  # self method is to be deleted, see implementation and comments below
                 'fetchCurrencies': True,
                 'withdraw': True,
+                'fetchTransactions': True,
             },
             'timeframes': {
                 '1m': 1,
@@ -52,7 +55,7 @@ class kucoin (Exchange):
                 '1w': 'W',
             },
             'urls': {
-                'logo': 'https://user-images.githubusercontent.com/1294454/33795655-b3c46e48-dcf6-11e7-8abe-dc4588ba7901.jpg',
+                'logo': 'https://user-images.githubusercontent.com/1294454/51909432-b0a72780-23dd-11e9-99ba-73d23c8d4eed.jpg',
                 'api': {
                     'public': 'https://api.kucoin.com',
                     'private': 'https://api.kucoin.com',
@@ -97,6 +100,7 @@ class kucoin (Exchange):
                         'account/{coin}/balance',
                         'account/promotion/info',
                         'account/promotion/sum',
+                        'account/transfer-records',
                         'deal-orders',
                         'order/active',
                         'order/active-map',
@@ -125,55 +129,187 @@ class kucoin (Exchange):
                     'tierBased': False,
                     'percentage': False,
                     'withdraw': {
-                        'KCS': 2.0,
-                        'BTC': 0.0005,
-                        'USDT': 10.0,
-                        'ETH': 0.01,
-                        'LTC': 0.001,
-                        'NEO': 0.0,
-                        'GAS': 0.0,
-                        'KNC': 0.5,
-                        'BTM': 5.0,
-                        'QTUM': 0.1,
-                        'EOS': 0.5,
-                        'CVC': 3.0,
-                        'OMG': 0.1,
-                        'PAY': 0.5,
-                        'SNT': 20.0,
-                        'BHC': 1.0,
-                        'HSR': 0.01,
-                        'WTC': 0.1,
-                        'VEN': 2.0,
-                        'MTH': 10.0,
-                        'RPX': 1.0,
-                        'REQ': 20.0,
-                        'EVX': 0.5,
-                        'MOD': 0.5,
-                        'NEBL': 0.1,
-                        'DGB': 0.5,
-                        'CAG': 2.0,
-                        'CFD': 0.5,
-                        'RDN': 0.5,
-                        'UKG': 5.0,
-                        'BCPT': 5.0,
-                        'PPT': 0.1,
+                        'ABT': 2.0,
+                        'ACAT': 10.0,
+                        'ACT': 1.0,
+                        'ADB': 10.0,
+                        'AGI': 40.0,
+                        'AION': 3.5,
+                        'AIX': 2.0,
+                        'AMB': 10.0,
+                        'AOA': 20.0,
+                        'APH': 3.0,
+                        'ARN': 6.0,
+                        'ARY': 10.0,
+                        'AXP': 25.0,
+                        'BAX': 1000.0,
+                        'BCD': 1.0,
                         'BCH': 0.0005,
-                        'STX': 2.0,
-                        'NULS': 1.0,
-                        'GVT': 0.1,
-                        'HST': 2.0,
-                        'PURA': 0.5,
-                        'SUB': 2.0,
-                        'QSP': 5.0,
-                        'POWR': 1.0,
-                        'FLIXX': 10.0,
-                        'LEND': 20.0,
-                        'AMB': 3.0,
-                        'RHOC': 2.0,
-                        'R': 2.0,
-                        'DENT': 50.0,
+                        'BCPT': 20.0,
+                        'BHC': 1.0,
+                        'BNTY': 50.0,
+                        'BOS': 1.0,
+                        'BPT': 5.0,
+                        'BRD': 3.0,
+                        'BTC': 0.0005,
+                        'BTG': 0.01,
+                        'BTM': 5.0,
+                        'BU': 0.5,
+                        'CAG': 2.0,
+                        'CAN': 1.0,
+                        'CAPP': 20.0,
+                        'CAT': 20.0,
+                        'CBC': 5.0,
+                        'CHP': 25.0,
+                        'CHSB': 70.0,
+                        'COFI': 5.0,
+                        'COSM': 50.0,
+                        'COV': 3.0,
+                        'CPC': 10.0,
+                        'CS': 3.0,
+                        'CV': 30.0,
+                        'CVC': 12.0,
+                        'CXO': 30.0,
+                        'DACC': 800.0,
+                        'DADI': 6.0,
+                        'DAG': 80.0,
+                        'DASH': 0.002,
+                        'DAT': 20.0,
+                        'DATX': 70.0,
+                        'DBC': 1.0,
+                        'DCC': 60.0,
+                        'DCR': 0.01,
+                        'DEB': 7.0,
+                        'DENT': 700.0,
+                        'DGB': 0.5,
+                        'DNA': 3.0,
+                        'DOCK': 100.0,
                         'DRGN': 1.0,
-                        'ACT': 0.1,
+                        'DTA': 100.0,
+                        'EBTC': 3.0,
+                        'EDR': 20.0,
+                        'EGT': 200.0,
+                        'ELA': 0.1,
+                        'ELEC': 32.0,
+                        'ELF': 4.0,
+                        'ELIX': 3.0,
+                        'ENJ': 40.0,
+                        'EOS': 0.5,
+                        'ETC': 0.01,
+                        'ETH': 0.01,
+                        'ETN': 50.0,
+                        'EXY': 3.0,
+                        'FLIXX': 10.0,
+                        'FOTA': 1.0,
+                        'GAS': 0.0,
+                        'GAT': 140.0,
+                        'GLA': 4.0,
+                        'GO': 1.0,
+                        'GVT': 0.3,
+                        'HAT': 0.5,
+                        'HAV': 5.0,
+                        'HKN': 0.5,
+                        'HPB': 0.5,
+                        'HSR': 0.01,
+                        'HST': 2.0,
+                        'IHT': 20.0,
+                        'ING': 3.0,
+                        'INS': 5.0,
+                        'IOST': 100.0,
+                        'IOTX': 150.0,
+                        'ITC': 1.0,
+                        'J8T': 30.0,
+                        'JNT': 5.0,
+                        'KCS': 0.5,
+                        'KEY': 200.0,
+                        'KICK': 35.0,
+                        'KNC': 3.5,
+                        'LA': 5.0,
+                        'LALA': 50.0,
+                        'LEND': 130.0,
+                        'LOC': 3.0,
+                        'LOCI': 4.0,
+                        'LOOM': 10.0,
+                        'LTC': 0.001,
+                        'LYM': 20.0,
+                        'MAN': 2.0,
+                        'MANA': 15.0,
+                        'MOBI': 30.0,
+                        'MOD': 2.0,
+                        'MTH': 75.0,
+                        'MTN': 10.0,
+                        'MVP': 100.0,
+                        'MWAT': 20.0,
+                        'NEBL': 0.1,
+                        'NEO': 0.0,
+                        'NULS': 1.0,
+                        'NUSD': 2.0,
+                        'OCN': 100.0,
+                        'OLT': 3.0,
+                        'OMG': 0.4,
+                        'OMX': 50.0,
+                        'ONION': 0.1,
+                        'ONT': 1.0,
+                        'OPEN': 15.0,
+                        'PARETO': 40.0,
+                        'PAY': 0.5,
+                        'PBL': 5.0,
+                        'PLAY': 40.0,
+                        'POLL': 0.5,
+                        'POLY': 10.0,
+                        'POWR': 8.0,
+                        'PPT': 0.3,
+                        'PRL': 1.0,
+                        'PURA': 0.5,
+                        'QKC': 50.0,
+                        'QLC': 1.0,
+                        'QSP': 45.0,
+                        'QTUM': 0.1,
+                        'R': 2.0,
+                        'RDN': 5.0,
+                        'REQ': 40.0,
+                        'RHOC': 2.0,
+                        'RPX': 1.0,
+                        'SHL': 4.0,
+                        'SNC': 10.0,
+                        'SNM': 30.0,
+                        'SNOV': 20.0,
+                        'SNT': 20.0,
+                        'SOUL': 4.0,
+                        'SPF': 10.0,
+                        'SPHTX': 8.0,
+                        'SRN': 5.0,
+                        'STK': 20.0,
+                        'SUB': 12.0,
+                        'TEL': 500.0,
+                        'TFL': 1.0,
+                        'TIME': 0.1,
+                        'TIO': 5.0,
+                        'TKY': 10.0,
+                        'TMT': 50.0,
+                        'TNC': 1.0,
+                        'TOMO': 1.0,
+                        'TRAC': 14.0,
+                        'TRX': 1.0,
+                        'UKG': 5.0,
+                        'USDT': 3.2,
+                        'USE': 900.0,
+                        'UT': 0.1,
+                        'UTK': 10.0,
+                        'VEN': 2.0,
+                        'WAN': 0.7,
+                        'WAX': 8.0,
+                        'WPR': 80.0,
+                        'WTC': 0.5,
+                        'XAS': 0.5,
+                        'XLM': 0.01,
+                        'XLR': 0.1,
+                        'XRB': 0.05,
+                        'ZIL': 50.0,
+                        'ZINC': 30.0,
+                        'ZPT': 1.0,
+                        'ZRX': 2.0,
+                        'ePRX': 1000,
                     },
                     'deposit': {},
                 },
@@ -198,7 +334,7 @@ class kucoin (Exchange):
                             'APH': 1,
                             'ARN': 1,
                             'ARY': 1,
-                            'AXP': 1,
+                            'AXPR': 1,
                             'BAX': 1,
                             'BCD': 0.001,
                             'BCH': 0.00001,
@@ -211,7 +347,7 @@ class kucoin (Exchange):
                             'BTG': 0.001,
                             'BTM': 1,
                             'CAG': 1,
-                            'CanYa': 1,
+                            'CanYaCoin': 1,
                             'CAPP': 1,
                             'CAT': 1,
                             'CBC': 1,
@@ -262,6 +398,7 @@ class kucoin (Exchange):
                             'HAV': 1,
                             'HKN': 1,
                             'HPB': 1,
+                            'HSR': 0.0001,
                             'HST': 0.1,
                             'IHT': 1,
                             'ING': 1,
@@ -304,6 +441,7 @@ class kucoin (Exchange):
                             'PARETO': 1,
                             'PAY': 0.1,
                             'PBL': 1,
+                            'PHX': 1,
                             'PLAY': 1,
                             'POLL': 1,
                             'POLY': 1,
@@ -358,7 +496,7 @@ class kucoin (Exchange):
                 },
             },
             'commonCurrencies': {
-                'CAN': 'CanYa',
+                'CAN': 'CanYaCoin',
                 'XRB': 'NANO',
             },
         })
@@ -388,7 +526,7 @@ class kucoin (Exchange):
             'cost': float(self.fee_to_precision(symbol, cost)),
         }
 
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         response = await self.publicGetMarketOpenSymbols()
         if self.options['adjustForTimeDifference']:
             await self.load_time_difference()
@@ -449,6 +587,93 @@ class kucoin (Exchange):
             'address': address,
             'tag': tag,
             'info': response,
+        }
+
+    async def fetch_transactions(self, code=None, since=None, limit=None, params={}):
+        # https://kucoinapidocs.docs.apiary.io/#reference/0/assets-operation/list-deposit-&-withdrawal-records
+        if code is None:
+            raise ArgumentsRequired(self.id + ' fetchDeposits requires a currency code argument')
+        await self.load_markets()
+        currency = self.currency(code)
+        request = {
+            'coin': currency['id'],
+        }
+        response = await self.privateGetAccountCoinWalletRecords(self.extend(request, params))
+        return self.parseTransactions(response['data']['datas'], currency, since, limit)
+
+    def parse_transaction(self, transaction, currency=None):
+        #
+        #     {
+        #         'coinType': 'ETH',
+        #         'createdAt': 1516134636000,
+        #         'amount': 2.5,
+        #         'address': '0x4cd00e7983e54add886442d3b866f95243cf9b30',
+        #         'fee': 0.0,
+        #         'outerWalletTxid': '0x820cde65b1fab0a9527a5c2466b3e7807fee45c6a81691486bf954114b12c873@0x4cd00e7983e54add886442d3b866f95243cf9b30@eth',
+        #         'remark': None,
+        #         'oid': '5a5e60ecaf2c5807eda65443',
+        #         'confirmation': 14,
+        #         'type': 'DEPOSIT',
+        #         'status': 'SUCCESS',
+        #         'updatedAt': 1516134827000
+        #     }
+        #
+        #     {
+        #         'coinType':'POLY',
+        #         'createdAt':1520696078000,
+        #         'amount':838.2247,
+        #         'address':'0x54fc433e95549e68fa362eb85c235177d94a8745',
+        #         'fee':3.0,
+        #         'outerWalletTxid':'0x055da84b7557498785d6acecf2b71d0158fec32fce246e51f5c49b79826a8481',
+        #         'remark':None,
+        #         'oid':'5aa3fb0d7bd394763bde55c1',
+        #         'confirmation':0,
+        #         'type':'WITHDRAW',
+        #         'status':'SUCCESS',
+        #         'updatedAt':1520696196000
+        #     }
+        #
+        id = self.safe_string(transaction, 'oid')
+        txid = self.safe_string(transaction, 'outerWalletTxid')
+        if txid is not None:
+            if txid.find('@') >= 0:
+                parts = txid.split('@')
+                txid = parts[0]
+        timestamp = self.safe_integer(transaction, 'createdAt')
+        code = None
+        currencyId = self.safe_string(transaction, 'coinType')
+        currency = self.safe_value(self.currencies_by_id, currencyId)
+        if currency is not None:
+            code = currency['code']
+        else:
+            code = self.common_currency_code(currencyId)
+        address = self.safe_string(transaction, 'address')
+        tag = self.safe_string(transaction, 'remark')
+        amount = self.safe_float(transaction, 'amount')
+        status = self.safe_string(transaction, 'status')
+        type = self.safe_string(transaction, 'type')
+        if type is not None:
+            # they return 'DEPOSIT' or 'WITHDRAW', ccxt used 'deposit' or 'withdrawal'
+            type = 'deposit' if (type == 'DEPOSIT') else 'withdrawal'
+        feeCost = self.safe_float(transaction, 'fee')
+        updated = self.safe_integer(transaction, 'updatedAt')
+        return {
+            'info': transaction,
+            'id': id,
+            'currency': code,
+            'amount': amount,
+            'address': address,
+            'tag': tag,
+            'status': status,
+            'type': type,
+            'updated': updated,
+            'txid': txid,
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'fee': {
+                'currency': code,
+                'cost': feeCost,
+            },
         }
 
     async def fetch_currencies(self, params={}):
@@ -551,9 +776,7 @@ class kucoin (Exchange):
             side = order['type']
         if side is not None:
             side = side.lower()
-        orderId = self.safe_string(order, 'orderOid')
-        if orderId is None:
-            orderId = self.safe_string(order, 'oid')
+        orderId = self.safe_string_2(order, 'orderOid', 'oid')
         # do not confuse trades with orders
         trades = None
         if 'dealOrders' in order:
@@ -665,7 +888,7 @@ class kucoin (Exchange):
 
     async def fetch_order(self, id, symbol=None, params={}):
         if symbol is None:
-            raise ExchangeError(self.id + ' fetchOrder requires a symbol argument')
+            raise ArgumentsRequired(self.id + ' fetchOrder requires a symbol argument')
         orderType = self.safe_value(params, 'type')
         if orderType is None:
             raise ExchangeError(self.id + ' fetchOrder requires a type parameter("BUY" or "SELL")')
@@ -769,18 +992,26 @@ class kucoin (Exchange):
         #
         return self.parse_orders_by_status(orders, market, since, limit, 'closed')
 
+    def price_to_precision(self, symbol, price):
+        market = self.market(symbol)
+        code = market['quote']
+        return self.decimal_to_precision(price, ROUND, self.currencies[code]['precision'], self.precisionMode)
+
+    def amount_to_precision(self, symbol, amount):
+        market = self.market(symbol)
+        code = market['base']
+        return self.decimal_to_precision(amount, TRUNCATE, self.currencies[code]['precision'], self.precisionMode)
+
     async def create_order(self, symbol, type, side, amount, price=None, params={}):
         if type != 'limit':
             raise ExchangeError(self.id + ' allows limit orders only')
         await self.load_markets()
         market = self.market(symbol)
-        quote = market['quote']
-        base = market['base']
         request = {
             'symbol': market['id'],
             'type': side.upper(),
-            'price': self.truncate(price, self.currencies[quote]['precision']),
-            'amount': self.truncate(amount, self.currencies[base]['precision']),
+            'price': self.price_to_precision(symbol, price),
+            'amount': self.amount_to_precision(symbol, amount),
         }
         price = float(price)
         amount = float(amount)
@@ -788,14 +1019,11 @@ class kucoin (Exchange):
         response = await self.privatePostOrder(self.extend(request, params))
         orderId = self.safe_string(response['data'], 'orderOid')
         timestamp = self.safe_integer(response, 'timestamp')
-        iso8601 = None
-        if timestamp is not None:
-            iso8601 = self.iso8601(timestamp)
         order = {
             'info': response,
             'id': orderId,
             'timestamp': timestamp,
-            'datetime': iso8601,
+            'datetime': self.iso8601(timestamp),
             'lastTradeTimestamp': None,
             'symbol': market['symbol'],
             'type': type,
@@ -954,8 +1182,9 @@ class kucoin (Exchange):
                 side = 'buy'
             elif trade[1] == 'SELL':
                 side = 'sell'
-            price = trade[2]
-            amount = trade[3]
+            price = self.safe_float(trade, 2)
+            amount = self.safe_float(trade, 3)
+            id = trade[5]
         else:
             timestamp = self.safe_value(trade, 'createdAt')
             order = self.safe_string(trade, 'orderOid')
@@ -967,15 +1196,17 @@ class kucoin (Exchange):
             amount = self.safe_float(trade, 'amount')
             cost = self.safe_float(trade, 'dealValue')
             feeCurrency = None
-            if market is not None:
-                feeCurrency = market['quote'] if (side == 'sell') else market['base']
-            else:
-                feeCurrencyField = 'coinTypePair' if (side == 'sell') else 'coinType'
-                feeCurrency = self.safe_string(order, feeCurrencyField)
-                if feeCurrency is not None:
-                    if feeCurrency in self.currencies_by_id:
-                        feeCurrency = self.currencies_by_id[feeCurrency]['code']
+            if side is not None:
+                if market is not None:
+                    feeCurrency = market['quote'] if (side == 'sell') else market['base']
+                else:
+                    feeCurrencyField = 'coinTypePair' if (side == 'sell') else 'coinType'
+                    feeCurrency = self.safe_string(order, feeCurrencyField)
+                    if feeCurrency is not None:
+                        if feeCurrency in self.currencies_by_id:
+                            feeCurrency = self.currencies_by_id[feeCurrency]['code']
             fee = {
+                'rate': self.safe_float(trade, 'feeRate'),
                 'cost': self.safe_float(trade, 'fee'),
                 'currency': feeCurrency,
             }
@@ -1014,7 +1245,7 @@ class kucoin (Exchange):
         # kucoin does not have any means of fetching personal trades at all
         # self will effectively simplify current convoluted implementations of parseOrder and parseTrade
         if symbol is None:
-            raise ExchangeError(self.id + ' fetchMyTrades is deprecated and requires a symbol argument')
+            raise ArgumentsRequired(self.id + ' fetchMyTrades is deprecated and requires a symbol argument')
         await self.load_markets()
         market = self.market(symbol)
         request = {
@@ -1024,10 +1255,6 @@ class kucoin (Exchange):
             request['limit'] = limit
         response = await self.privateGetDealOrders(self.extend(request, params))
         return self.parse_trades(response['data']['datas'], market, since, limit)
-
-    def parse_trading_view_ohlcv(self, ohlcvs, market=None, timeframe='1m', since=None, limit=None):
-        result = self.convert_trading_view_to_ohlcv(ohlcvs)
-        return self.parse_ohlcvs(result, market, timeframe, since, limit)
 
     async def fetch_ohlcv(self, symbol, timeframe='1m', since=None, limit=None, params={}):
         await self.load_markets()
@@ -1069,11 +1296,16 @@ class kucoin (Exchange):
         await self.load_markets()
         currency = self.currency(code)
         self.check_address(address)
-        response = await self.privatePostAccountCoinWithdrawApply(self.extend({
+        request = {
             'coin': currency['id'],
             'amount': amount,
             'address': address,
-        }, params))
+        }
+        # they don't have the tag properly documented for currencies that require it(XLM, XRP, ...)
+        # https://www.reddit.com/r/kucoin/comments/93o92b/withdraw_of_xlm_through_api/
+        if tag is not None:
+            request['address'] += '@' + tag
+        response = await self.privatePostAccountCoinWithdrawApply(self.extend(request, params))
         return {
             'info': response,
             'id': None,
@@ -1108,7 +1340,7 @@ class kucoin (Exchange):
                 url += '?' + self.urlencode(query)
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def throw_exception_on_error(self, response):
+    def handle_errors(self, code, reason, url, method, headers, body, response):
         #
         # API endpoints return the following formats
         #     {success: False, code: "ERROR", msg: "Min price:100.0"}
@@ -1124,15 +1356,15 @@ class kucoin (Exchange):
         if response['success'] is True:
             return  # not an error
         if not('code' in list(response.keys())) or not('msg' in list(response.keys())):
-            raise ExchangeError(self.id + ': malformed response: ' + self.json(response))
-        code = self.safe_string(response, 'code')
+            raise ExchangeError(self.id + ': malformed response: ' + body)
+        responseCode = self.safe_string(response, 'code')
         message = self.safe_string(response, 'msg')
-        feedback = self.id + ' ' + self.json(response)
-        if code == 'UNAUTH':
+        feedback = self.id + ' ' + body
+        if responseCode == 'UNAUTH':
             if message == 'Invalid nonce':
                 raise InvalidNonce(feedback)
             raise AuthenticationError(feedback)
-        elif code == 'ERROR':
+        elif responseCode == 'ERROR':
             if message.find('The precision of amount') >= 0:
                 raise InvalidOrder(feedback)  # amount violates precision.amount
             if message.find('Min amount each order') >= 0:
@@ -1143,15 +1375,7 @@ class kucoin (Exchange):
                 raise InvalidOrder(feedback)  # price > limits.price.max
             if message.find('The precision of price') >= 0:
                 raise InvalidOrder(feedback)  # price violates precision.price
-        elif code == 'NO_BALANCE':
+        elif responseCode == 'NO_BALANCE':
             if message.find('Insufficient balance') >= 0:
                 raise InsufficientFunds(feedback)
-        raise ExchangeError(self.id + ': unknown response: ' + self.json(response))
-
-    def handle_errors(self, code, reason, url, method, headers, body, response=None):
-        if response is not None:
-            # JS callchain parses body beforehand
-            self.throw_exception_on_error(response)
-        elif body and(body[0] == '{'):
-            # Python/PHP callchains don't have json available at self step
-            self.throw_exception_on_error(json.loads(body))
+        raise ExchangeError(self.id + ': unknown response: ' + body)

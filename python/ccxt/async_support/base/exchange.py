@@ -2,7 +2,7 @@
 
 # -----------------------------------------------------------------------------
 
-__version__ = '1.17.99'
+__version__ = '1.18.196'
 
 # -----------------------------------------------------------------------------
 
@@ -15,6 +15,7 @@ import random
 import certifi
 import aiohttp
 import ssl
+import sys
 import yarl
 
 # -----------------------------------------------------------------------------
@@ -24,6 +25,7 @@ from ccxt.async_support.base.throttle import throttle
 # -----------------------------------------------------------------------------
 
 from ccxt.base.errors import ExchangeError
+from ccxt.base.errors import AuthenticationError
 from ccxt.base.errors import ExchangeNotAvailable
 from ccxt.base.errors import RequestTimeout
 from ccxt.base.errors import NotSupported
@@ -49,12 +51,8 @@ class Exchange(BaseExchange):
             self.asyncio_loop = config['asyncio_loop']
         self.asyncio_loop = self.asyncio_loop or asyncio.get_event_loop()
         self.own_session = 'session' not in config
-        if self.own_session:
-            # Create our SSL context object with our CA cert file
-            context = ssl.create_default_context(cafile=certifi.where())
-            # Pass this SSL context to aiohttp and create a TCPConnector
-            connector = aiohttp.TCPConnector(ssl_context=context, loop=self.asyncio_loop)
-            self.session = aiohttp.ClientSession(loop=self.asyncio_loop, connector=connector)
+        self.cafile = config.get('cafile', certifi.where())
+        self.open()
         super(Exchange, self).__init__(config)
         self.init_rest_rate_limiter()
 
@@ -66,6 +64,22 @@ class Exchange(BaseExchange):
     def __del__(self):
         if self.session is not None:
             self.logger.warning(self.id + " requires to release all resources with an explicit call to the .close() coroutine. If you are creating the exchange instance from within your async coroutine, add exchange.close() to your code into a place when you're done with the exchange and don't need the exchange instance anymore (at the end of your async coroutine).")
+
+    if sys.version_info >= (3, 5):
+        async def __aenter__(self):
+            self.open()
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            await self.close()
+
+    def open(self):
+        if self.own_session and self.session is None:
+            # Create our SSL context object with our CA cert file
+            context = ssl.create_default_context(cafile=self.cafile)
+            # Pass this SSL context to aiohttp and create a TCPConnector
+            connector = aiohttp.TCPConnector(ssl=context, loop=self.asyncio_loop)
+            self.session = aiohttp.ClientSession(loop=self.asyncio_loop, connector=connector, trust_env=self.aiohttp_trust_env)
 
     async def close(self):
         if self.session is not None:
@@ -103,34 +117,37 @@ class Exchange(BaseExchange):
 
     async def fetch(self, url, method='GET', headers=None, body=None):
         """Perform a HTTP request and return decoded JSON data"""
-        headers = self.prepare_request_headers(headers)
-
+        request_headers = self.prepare_request_headers(headers)
         url = self.proxy + url
 
         if self.verbose:
             print("\nRequest:", method, url, headers, body)
-
         self.logger.debug("%s %s, Request: %s %s", method, url, headers, body)
 
         encoded_body = body.encode() if body else None
         session_method = getattr(self.session, method.lower())
-        http_status_code = None
 
+        response = None
+        http_response = None
+        json_response = None
         try:
             async with session_method(yarl.URL(url, encoded=True),
                                       data=encoded_body,
-                                      headers=headers,
+                                      headers=request_headers,
                                       timeout=(self.timeout / 1000),
                                       proxy=self.aiohttp_proxy) as response:
-                http_status_code = response.status
-                text = await response.text()
-                self.last_http_response = text
-                self.last_response_headers = response.headers
-                self.handle_errors(http_status_code, text, url, method, self.last_response_headers, text)
-                self.handle_rest_errors(None, http_status_code, text, url, method)
+                http_response = await response.text()
+                json_response = self.parse_json(http_response) if self.is_json_encoded_object(http_response) else None
+                headers = response.headers
+                if self.enableLastHttpResponse:
+                    self.last_http_response = http_response
+                if self.enableLastResponseHeaders:
+                    self.last_response_headers = headers
+                if self.enableLastJsonResponse:
+                    self.last_json_response = json_response
                 if self.verbose:
-                    print("\nResponse:", method, url, str(http_status_code), str(response.headers), self.last_http_response)
-                self.logger.debug("%s %s, Response: %s %s %s", method, url, response.status, response.headers, self.last_http_response)
+                    print("\nResponse:", method, url, response.status, headers, http_response)
+                self.logger.debug("%s %s, Response: %s %s %s", method, url, response.status, headers, http_response)
 
         except socket.gaierror as e:
             self.raise_error(ExchangeNotAvailable, url, method, e, None)
@@ -141,23 +158,49 @@ class Exchange(BaseExchange):
         except aiohttp.client_exceptions.ClientConnectionError as e:
             self.raise_error(ExchangeNotAvailable, url, method, e, None)
 
-        except aiohttp.client_exceptions.ClientError as e:
+        except aiohttp.client_exceptions.ClientError as e:  # base exception class
             self.raise_error(ExchangeError, url, method, e, None)
 
-        self.handle_errors(http_status_code, text, url, method, self.last_response_headers, text)
-        return self.handle_rest_response(text, url, method, headers, body)
+        self.handle_errors(response.status, response.reason, url, method, headers, http_response, json_response)
+        self.handle_rest_errors(None, response.status, http_response, url, method)
+        self.handle_rest_response(http_response, json_response, url, method, headers, body)
+        if json_response is not None:
+            return json_response
+        return http_response
 
-    async def load_markets(self, reload=False):
+    async def load_markets(self, reload=False, params={}):
         if not reload:
             if self.markets:
                 if not self.markets_by_id:
                     return self.set_markets(self.markets)
                 return self.markets
-        markets = await self.fetch_markets()
+        markets = await self.fetch_markets(params)
         currencies = None
         if self.has['fetchCurrencies']:
             currencies = await self.fetch_currencies()
         return self.set_markets(markets, currencies)
+
+    async def fetch_fees(self):
+        trading = {}
+        funding = {}
+        try:
+            trading = await self.fetch_trading_fees()
+        except AuthenticationError:
+            pass
+        except AttributeError:
+            pass
+
+        try:
+            funding = await self.fetch_funding_fees()
+        except AuthenticationError:
+            pass
+        except AttributeError:
+            pass
+
+        return {
+            'trading': trading,
+            'funding': funding,
+        }
 
     async def load_fees(self):
         await self.load_markets()
@@ -165,7 +208,7 @@ class Exchange(BaseExchange):
         if not (self.has['fetchTradingFees'] or self.has['fetchFundingFees']):
             return self.fees
 
-        fetched_fees = self.fetch_fees()
+        fetched_fees = await self.fetch_fees()
         if fetched_fees['funding']:
             self.fees['funding']['fee_loaded'] = True
         if fetched_fees['trading']:
@@ -174,14 +217,22 @@ class Exchange(BaseExchange):
         self.fees = self.deep_extend(self.fees, fetched_fees)
         return self.fees
 
-    async def fetch_markets(self):
-        return self.markets
+    async def fetch_markets(self, params={}):
+        # markets are returned as a list
+        # currencies are returned as a dict
+        # this is for historical reasons
+        # and may be changed for consistency later
+        return self.to_array(self.markets)
 
-    async def fetch_currencies(self):
+    async def fetch_currencies(self, params={}):
+        # markets are returned as a list
+        # currencies are returned as a dict
+        # this is for historical reasons
+        # and may be changed for consistency later
         return self.currencies
 
-    async def fetch_order_status(self, id, market=None):
-        order = await self.fetch_order(id)
+    async def fetch_order_status(self, id, symbol=None, params={}):
+        order = await self.fetch_order(id, symbol, params)
         return order['status']
 
     async def fetch_partial_balance(self, part, params={}):
@@ -227,12 +278,8 @@ class Exchange(BaseExchange):
         if self.has['fetchTradingLimits']:
             if reload or not('limitsLoaded' in list(self.options.keys())):
                 response = await self.fetch_trading_limits(symbols)
-                limits = response['limits']
-                keys = list(limits.keys())
-                for i in range(0, len(keys)):
-                    symbol = keys[i]
-                    self.markets[symbol] = self.deep_extend(self.markets[symbol], {
-                        'limits': limits[symbol],
-                    })
+                for i in range(0, len(symbols)):
+                    symbol = symbols[i]
+                    self.markets[symbol] = self.deep_extend(self.markets[symbol], response[symbol])
                 self.options['limitsLoaded'] = self.milliseconds()
         return self.markets

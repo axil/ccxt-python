@@ -12,20 +12,25 @@ try:
 except NameError:
     basestring = str  # Python 2
 import hashlib
-import json
+import math
 from ccxt.base.errors import ExchangeError
 from ccxt.base.errors import AuthenticationError
+from ccxt.base.errors import ArgumentsRequired
+from ccxt.base.errors import BadRequest
+from ccxt.base.errors import InsufficientFunds
+from ccxt.base.errors import InvalidAddress
 from ccxt.base.errors import InvalidOrder
 from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import OrderImmediatelyFillable
 from ccxt.base.errors import OrderNotFillable
 from ccxt.base.errors import NotSupported
-from ccxt.base.decimal_to_precision import ROUND
+from ccxt.base.errors import ExchangeNotAvailable
 
 
 class theocean (Exchange):
 
     def describe(self):
+        self.check_required_dependencies()
         return self.deep_extend(super(theocean, self).describe(), {
             'id': 'theocean',
             'name': 'The Ocean',
@@ -33,7 +38,7 @@ class theocean (Exchange):
             'rateLimit': 3000,
             'version': 'v0',
             'certified': True,
-            'parseJsonResponse': False,
+            'requiresWeb3': True,
             # add GET https://api.staging.theocean.trade/api/v0/candlesticks/intervals to fetchMarkets
             'timeframes': {
                 '5m': '300',
@@ -47,6 +52,9 @@ class theocean (Exchange):
                 'fetchTickers': True,
                 'fetchOHLCV': False,
                 'fetchOrder': True,
+                'fetchOrders': True,
+                'fetchOpenOrders': True,
+                'fetchClosedOrders': True,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/43103756-d56613ce-8ed7-11e8-924e-68f9d4bcacab.jpg',
@@ -58,6 +66,7 @@ class theocean (Exchange):
             'api': {
                 'public': {
                     'get': [
+                        'fee_components',
                         'token_pairs',
                         'ticker',
                         'tickers',
@@ -70,6 +79,7 @@ class theocean (Exchange):
                 },
                 'private': {
                     'get': [
+                        'balance',
                         'available_balance',
                         'user_history',
                     ],
@@ -86,15 +96,27 @@ class theocean (Exchange):
                 },
             },
             'exceptions': {
-                "Schema validation failed for 'query'": ExchangeError,  # {"message": "Schema validation failed for 'query'", "errors": ...}
-                "Logic validation failed for 'query'": ExchangeError,  # {"message": "Logic validation failed for 'query'", "errors": ...}
-                "Schema validation failed for 'body'": ExchangeError,  # {"message": "Schema validation failed for 'body'", "errors": ...}
-                "Logic validation failed for 'body'": ExchangeError,  # {"message": "Logic validation failed for 'body'", "errors": ...}
-                'Order not found': OrderNotFound,  # {"message":"Order not found","errors":...}
+                'exact': {
+                    # "Schema validation failed for 'query'": ExchangeError,  # {"message": "Schema validation failed for 'query'", "errors": ...}
+                    # "Logic validation failed for 'query'": ExchangeError,  # {"message": "Logic validation failed for 'query'", "errors": ...}
+                    # "Schema validation failed for 'body'": ExchangeError,  # {"message": "Schema validation failed for 'body'", "errors": ...}
+                    # "Logic validation failed for 'body'": ExchangeError,  # {"message": "Logic validation failed for 'body'", "errors": ...}
+                    'Order not found': OrderNotFound,  # {"message":"Order not found","errors":...}
+                },
+                'broad': {
+                    "Price can't exceed 8 digits in precision.": InvalidOrder,  # {"message":"Price can't exceed 8 digits in precision.","type":"paramPrice"}
+                    'Order cannot be canceled': InvalidOrder,  # {"message":"Order cannot be canceled","type":"General error"}
+                    'Greater than available wallet balance.': InsufficientFunds,
+                    'Orderbook exhausted for intent': OrderNotFillable,  # {"message":"Orderbook exhausted for intent MARKET_INTENT:8yjjzd8b0e8yjjzd8b0fjjzd8b0g"}
+                    'Fillable amount under minimum': InvalidOrder,  # {"message":"Fillable amount under minimum WETH trade size.","type":"paramQuoteTokenAmount"}
+                    'Fillable amount over maximum': InvalidOrder,  # {"message":"Fillable amount over maximum TUSD trade size.","type":"paramQuoteTokenAmount"}
+                    "Schema validation failed for 'params'": BadRequest,  # # {"message":"Schema validation failed for 'params'"}
+                    'Service Temporarily Unavailable': ExchangeNotAvailable,
+                },
             },
             'options': {
+                'decimals': {},
                 'fetchOrderMethod': 'fetch_order_from_history',
-                'filledField': 'confirmed',
             },
         })
 
@@ -114,7 +136,7 @@ class theocean (Exchange):
             'cost': cost,
         }
 
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         markets = await self.publicGetTokenPairs()
         #
         #     [
@@ -151,21 +173,25 @@ class theocean (Exchange):
             quote = self.common_currency_code(quote)
             symbol = base + '/' + quote
             id = baseId + '/' + quoteId
+            baseDecimals = self.safe_integer(baseToken, 'decimals')
+            quoteDecimals = self.safe_integer(quoteToken, 'decimals')
+            self.options['decimals'][base] = baseDecimals
+            self.options['decimals'][quote] = quoteDecimals
             precision = {
-                'amount': self.safe_integer(baseToken, 'precision'),
-                'price': self.safe_integer(quoteToken, 'precision'),
+                'amount': -int(baseToken['precision']),
+                'price': -int(quoteToken['precision']),
             }
             amountLimits = {
-                'min': self.fromWei(self.safe_string(baseToken, 'minAmount')),
-                'max': self.fromWei(self.safe_string(baseToken, 'maxAmount')),
+                'min': self.fromWei(self.safe_string(baseToken, 'minAmount'), 'ether', baseDecimals),
+                'max': self.fromWei(self.safe_string(baseToken, 'maxAmount'), 'ether', baseDecimals),
             }
             priceLimits = {
                 'min': None,
                 'max': None,
             }
             costLimits = {
-                'min': self.fromWei(self.safe_string(quoteToken, 'minAmount')),
-                'max': self.fromWei(self.safe_string(quoteToken, 'maxAmount')),
+                'min': self.fromWei(self.safe_string(quoteToken, 'minAmount'), 'ether', quoteDecimals),
+                'max': self.fromWei(self.safe_string(quoteToken, 'maxAmount'), 'ether', quoteDecimals),
             }
             limits = {
                 'amount': amountLimits,
@@ -181,8 +207,6 @@ class theocean (Exchange):
                 'baseId': baseId,
                 'quoteId': quoteId,
                 'active': active,
-                'taker': None,
-                'maker': None,
                 'precision': precision,
                 'limits': limits,
                 'info': market,
@@ -190,13 +214,14 @@ class theocean (Exchange):
         return result
 
     def parse_ohlcv(self, ohlcv, market=None, timeframe='5m', since=None, limit=None):
+        baseDecimals = self.safe_integer(self.options['decimals'], market['base'], 18)
         return [
             self.safe_integer(ohlcv, 'startTime') * 1000,
             self.safe_float(ohlcv, 'open'),
             self.safe_float(ohlcv, 'high'),
             self.safe_float(ohlcv, 'low'),
             self.safe_float(ohlcv, 'close'),
-            self.fromWei(self.safe_string(ohlcv, 'baseVolume')),
+            self.fromWei(self.safe_string(ohlcv, 'baseVolume'), 'ether', baseDecimals),
             # self.safe_string(ohlcv, 'quoteVolume'),
         ]
 
@@ -237,41 +262,80 @@ class theocean (Exchange):
         return self.parse_ohlcvs(response, market, timeframe, since, limit)
 
     async def fetch_balance_by_code(self, code, params={}):
+        if not self.walletAddress or (self.walletAddress.find('0x') != 0):
+            raise InvalidAddress(self.id + ' fetchBalanceByCode() requires the .walletAddress to be a "0x"-prefixed hexstring like "0xbF2d65B3b2907214EEA3562f21B80f6Ed7220377"')
         await self.load_markets()
         currency = self.currency(code)
         request = {
             'walletAddress': self.walletAddress.lower(),
             'tokenAddress': currency['id'],
         }
-        response = await self.privateGetAvailableBalance(self.extend(request, params))
+        response = await self.privateGetBalance(self.extend(request, params))
         #
-        #     {
-        #       "availableBalance": "1001006594219628829207"
-        #     }
+        #     {"available":"0","committed":"0","total":"0"}
         #
-        balance = self.fromWei(self.safe_string(response, 'availableBalance'))
+        decimals = self.safe_integer(self.options['decimals'], code, 18)
+        free = self.fromWei(self.safe_string(response, 'available'), 'ether', decimals)
+        used = self.fromWei(self.safe_string(response, 'committed'), 'ether', decimals)
+        total = self.fromWei(self.safe_string(response, 'total'), 'ether', decimals)
         return {
-            'free': balance,
-            'used': 0,
-            'total': balance,
+            'free': free,
+            'used': used,
+            'total': total,
         }
 
     async def fetch_balance(self, params={}):
-        await self.load_markets()
-        codes = self.safe_value(params, 'codes')
+        if not self.walletAddress or (self.walletAddress.find('0x') != 0):
+            raise InvalidAddress(self.id + ' fetchBalance() requires the .walletAddress to be a "0x"-prefixed hexstring like "0xbF2d65B3b2907214EEA3562f21B80f6Ed7220377"')
+        codes = self.safe_value(self.options, 'fetchBalanceCurrencies')
+        if codes is None:
+            codes = self.safe_value(params, 'codes')
         if (codes is None) or (not isinstance(codes, list)):
-            raise ExchangeError(self.id + ' fetchBalance requires a `codes` parameter(an array of currency codes)')
+            raise ExchangeError(self.id + ' fetchBalance() requires a `codes` parameter(an array of currency codes)')
+        await self.load_markets()
         result = {}
         for i in range(0, len(codes)):
             code = codes[i]
             result[code] = await self.fetch_balance_by_code(code)
         return self.parse_balance(result)
 
-    def parse_bid_ask(self, bidask, priceKey=0, amountKey=1):
+    def parse_bid_ask(self, bidask, priceKey=0, amountKey=1, market=None):
+        if market is None:
+            raise ArgumentsRequired(self.id + ' parseBidAsk requires a market argument')
         price = float(bidask[priceKey])
-        amount = self.fromWei(bidask[amountKey])
+        amountDecimals = self.safe_integer(self.options['decimals'], market['base'], 18)
+        #
+        # the following does not work with self bidask: {"orderHash":"0x8b5d8d34eded1cbf8519733401ae3ced8069089fd16d5431cb3d4b016d7788f2","price":"133.74013659","availableAmount":"4652691526891295598045.34542621578779823835103356911924523765168638519704923461215973053000214547556058831637954647252647510035865072314678676592576536328447541178082827906517347971793654011427890554542683570544867337525450220078254745116898401756810404232673589363421879924390066378804261951784","creationTimestamp":"1542743835","expirationTimestampInSec":"1545339435"}
+        # therefore we apply a dirty string-based patch
+        #
+        # amount = self.fromWei(bidask[amountKey], 'ether', amountDecimals)
+        #
+        amountString = self.safe_string(bidask, amountKey)
+        amountParts = amountString.split('.')
+        numParts = len(amountParts)
+        if numParts == 2:
+            amountString = amountParts[0]
+        amount = self.fromWei(amountString, 'ether', amountDecimals)
         # return [price, amount, bidask]
         return [price, amount]
+
+    def parse_order_book(self, orderbook, timestamp=None, bidsKey='bids', asksKey='asks', priceKey=0, amountKey=1, market=None):
+        result = {
+            'timestamp': timestamp,
+            'datetime': self.iso8601(timestamp),
+            'nonce': None,
+        }
+        sides = [bidsKey, asksKey]
+        for i in range(0, len(sides)):
+            side = sides[i]
+            orders = []
+            bidasks = self.safe_value(orderbook, side)
+            for k in range(0, len(bidasks)):
+                orders.append(self.parse_bid_ask(bidasks[k], priceKey, amountKey, market))
+            result[side] = orders
+        result[bidsKey] = self.sort_by(result[bidsKey], 0, True)
+        result[asksKey] = self.sort_by(result[asksKey], 0)
+        return result
 
     async def fetch_order_book(self, symbol, limit=None, params={}):
         await self.load_markets()
@@ -305,7 +369,7 @@ class theocean (Exchange):
         #       ]
         #     }
         #
-        return self.parse_order_book(response, None, 'bids', 'asks', 'price', 'availableAmount')
+        return self.parse_order_book(response, None, 'bids', 'asks', 'price', 'availableAmount', market)
 
     def parse_ticker(self, ticker, market=None):
         #
@@ -319,8 +383,12 @@ class theocean (Exchange):
         #
         timestamp = int(self.safe_float(ticker, 'timestamp') / 1000)
         symbol = None
+        base = None
         if market is not None:
             symbol = market['symbol']
+            base = market['base']
+        baseDecimals = self.safe_integer(self.options['decimals'], base, 18)
+        baseVolume = self.fromWei(self.safe_string(ticker, 'volume'), 'ether', baseDecimals)
         last = self.safe_float(ticker, 'last')
         return {
             'symbol': symbol,
@@ -340,7 +408,7 @@ class theocean (Exchange):
             'change': None,
             'percentage': self.safe_float(ticker, 'priceChange'),
             'average': None,
-            'baseVolume': self.fromWei(self.safe_string(ticker, 'volume')),
+            'baseVolume': baseVolume,
             'quoteVolume': None,
             'info': ticker,
         }
@@ -416,11 +484,16 @@ class theocean (Exchange):
             timestamp = timestamp * 1000
         price = self.safe_float(trade, 'price')
         orderId = self.safe_string(trade, 'order')
-        id = self.safe_string_2(trade, 'transactionHash', 'txHash')
+        id = self.safe_string(trade, 'id')
+        if id is None:
+            id = self.safe_string_2(trade, 'transactionHash', 'txHash')
         symbol = None
+        base = None
         if market is not None:
             symbol = market['symbol']
-        amount = self.fromWei(self.safe_string(trade, 'amount'))
+            base = market['base']
+        baseDecimals = self.safe_integer(self.options['decimals'], base, 18)
+        amount = self.fromWei(self.safe_string(trade, 'amount'), 'ether', baseDecimals)
         cost = None
         if amount is not None:
             if price is not None:
@@ -466,16 +539,15 @@ class theocean (Exchange):
         #
         return self.parse_trades(response, market, since, limit)
 
-    def price_to_precision(self, symbol, price):
-        return self.decimal_to_precision(price, ROUND, self.markets[symbol]['precision']['price'], self.precisionMode)
-
     async def create_order(self, symbol, type, side, amount, price=None, params={}):
+        errorMessage = self.id + ' createOrder() requires `exchange.walletAddress` and `exchange.privateKey`. The .walletAddress should be a "0x"-prefixed hexstring like "0xbF2d65B3b2907214EEA3562f21B80f6Ed7220377". The .privateKey for that wallet should be a "0x"-prefixed hexstring like "0xe4f40d465efa94c98aec1a51f574329344c772c1bce33be07fa20a56795fdd09".'
+        if not self.walletAddress or (self.walletAddress.find('0x') != 0):
+            raise InvalidAddress(errorMessage)
+        if not self.privateKey or (self.privateKey.find('0x') != 0):
+            raise InvalidAddress(errorMessage)
         await self.load_markets()
-        if not(self.walletAddress and self.privateKey):
-            raise ExchangeError(self.id + ' createOrder() requires `exchange.walletAddress` and `exchange.privateKey`. The .walletAddress should be a hex-string like "0xbF2d65B3b2907214EEA3562f21B80f6Ed7220377". The .privateKey for that wallet should be a hex string like "0xe4f40d465efa94c98aec1a51f574329344c772c1bce33be07fa20a56795fdd09".')
         makerOrTaker = self.safe_string(params, 'makerOrTaker')
         isMarket = (type == 'market')
-        isLimit = (type == 'limit')
         isMakerOrTakerUndefined = (makerOrTaker is None)
         isTaker = (makerOrTaker == 'taker')
         isMaker = (makerOrTaker == 'maker')
@@ -484,12 +556,13 @@ class theocean (Exchange):
         query = self.omit(params, 'makerOrTaker')
         timestamp = self.milliseconds()
         market = self.market(symbol)
+        baseDecimals = self.safe_integer(self.options['decimals'], market['base'], 18)
         reserveRequest = {
             'walletAddress': self.walletAddress.lower(),  # Your Wallet Address
             'baseTokenAddress': market['baseId'],  # Base token address
             'quoteTokenAddress': market['quoteId'],  # Quote token address
             'side': side,  # "buy" or "sell"
-            'orderAmount': self.toWei(self.amount_to_precision(symbol, amount)),  # Base token amount in wei
+            'orderAmount': self.toWei(self.amount_to_precision(symbol, amount), 'ether', baseDecimals),  # Base token amount in wei
             'feeOption': 'feeInNative',  # Fees can be paid in native currency("feeInNative"), or ZRX("feeInZRX")
         }
         if type == 'limit':
@@ -600,22 +673,34 @@ class theocean (Exchange):
         placeRequest = {}
         signedMatchingOrder = None
         signedTargetOrder = None
-        if (isMarket and isMakerOrTakerUndefined) or isTaker:
-            if isUnsignedMatchingOrderDefined:
+        if isUnsignedMatchingOrderDefined and isUnsignedTargetOrderDefined:
+            if isTaker:
                 signedMatchingOrder = self.signZeroExOrder(self.extend(unsignedMatchingOrder, makerAddress), self.privateKey)
-                placeRequest = self.extend(placeRequest, {
-                    'signedMatchingOrder': signedMatchingOrder,
-                    'matchingOrderID': reserveResponse['matchingOrderID'],
-                })
-            elif isMarket or isTaker:
-                raise OrderNotFillable(self.id + ' createOrder() ' + type + ' order to ' + side + ' ' + symbol + ' is not fillable as a taker order')
-        if (isLimit and isMakerOrTakerUndefined) or isMaker:
-            if isUnsignedTargetOrderDefined:
+                placeRequest['signedMatchingOrder'] = signedMatchingOrder
+                placeRequest['matchingOrderID'] = reserveResponse['matchingOrderID']
+            elif isMaker:
                 signedTargetOrder = self.signZeroExOrder(self.extend(unsignedTargetOrder, makerAddress), self.privateKey)
                 placeRequest['signedTargetOrder'] = signedTargetOrder
-            elif isMaker:
+            else:
+                signedMatchingOrder = self.signZeroExOrder(self.extend(unsignedMatchingOrder, makerAddress), self.privateKey)
+                placeRequest['signedMatchingOrder'] = signedMatchingOrder
+                placeRequest['matchingOrderID'] = reserveResponse['matchingOrderID']
+                signedTargetOrder = self.signZeroExOrder(self.extend(unsignedTargetOrder, makerAddress), self.privateKey)
+                placeRequest['signedTargetOrder'] = signedTargetOrder
+        elif isUnsignedMatchingOrderDefined:
+            if isMaker:
                 raise OrderImmediatelyFillable(self.id + ' createOrder() ' + type + ' order to ' + side + ' ' + symbol + ' is not fillable as a maker order')
-        if not isUnsignedMatchingOrderDefined and not isUnsignedTargetOrderDefined:
+            else:
+                signedMatchingOrder = self.signZeroExOrder(self.extend(unsignedMatchingOrder, makerAddress), self.privateKey)
+                placeRequest['signedMatchingOrder'] = signedMatchingOrder
+                placeRequest['matchingOrderID'] = reserveResponse['matchingOrderID']
+        elif isUnsignedTargetOrderDefined:
+            if isTaker or isMarket:
+                raise OrderNotFillable(self.id + ' createOrder() ' + type + ' order to ' + side + ' ' + symbol + ' is not fillable as a taker order')
+            else:
+                signedTargetOrder = self.signZeroExOrder(self.extend(unsignedTargetOrder, makerAddress), self.privateKey)
+                placeRequest['signedTargetOrder'] = signedTargetOrder
+        else:
             raise OrderNotFillable(self.id + ' ' + type + ' order to ' + side + ' ' + symbol + ' is not fillable at the moment')
         placeMethod = method + 'Place'
         placeResponse = await getattr(self, placeMethod)(self.extend(placeRequest, query))
@@ -698,9 +783,14 @@ class theocean (Exchange):
         #       }
         #     }
         #
-        return response
+        market = None
+        if symbol is not None:
+            market = self.market(symbol)
+        return self.extend(self.parse_order(response['canceledOrder'], market), {
+            'status': 'canceled',
+        })
 
-    async def cancel_all_orders(self, params={}):
+    async def cancel_all_orders(self, symbols=None, params={}):
         response = await self.privateDeleteOrders(params)
         #
         #     [{
@@ -799,33 +889,38 @@ class theocean (Exchange):
         #                                   blockNumber: "8094822",
         #                                     timestamp: "1532261686"                                                          }  ]}
         #
+        #
+        #
         zeroExOrder = self.safe_value(order, 'zeroExOrder')
         id = self.safe_string(order, 'orderHash')
         if (id is None) and(zeroExOrder is not None):
             id = self.safe_string(zeroExOrder, 'orderHash')
         side = self.safe_string(order, 'side')
-        type = 'limit'
+        type = self.safe_string(order, 'type')  # injected from outside
         timestamp = self.safe_integer(order, 'created')
         timestamp = timestamp * 1000 if (timestamp is not None) else timestamp
         symbol = None
-        if market is None:
-            baseId = self.safe_string(order, 'baseTokenAddress')
-            quoteId = self.safe_string(order, 'quoteTokenAddress')
+        baseId = self.safe_string(order, 'baseTokenAddress')
+        quoteId = self.safe_string(order, 'quoteTokenAddress')
+        marketId = None
+        if baseId is not None and quoteId is not None:
             marketId = baseId + '/' + quoteId
-            if marketId in self.markets_by_id:
-                market = self.markets_by_id[marketId]
+        market = self.safe_value(self.markets_by_id, marketId, market)
+        base = None
         if market is not None:
             symbol = market['symbol']
+            base = market['base']
+        baseDecimals = self.safe_integer(self.options['decimals'], base, 18)
         price = self.safe_float(order, 'price')
-        openAmount = self.fromWei(self.safe_float(order, 'openAmount'))
-        reservedAmount = self.fromWei(self.safe_float(order, 'reservedAmount'))
-        filledAmount = self.fromWei(self.safe_float(order, 'filledAmount'))
-        settledAmount = self.fromWei(self.safe_float(order, 'settledAmount'))
-        confirmedAmount = self.fromWei(self.safe_float(order, 'confirmedAmount'))
-        failedAmount = self.fromWei(self.safe_float(order, 'failedAmount'))
-        deadAmount = self.fromWei(self.safe_float(order, 'deadAmount'))
-        prunedAmount = self.fromWei(self.safe_float(order, 'prunedAmount'))
-        amount = self.fromWei(self.safe_float(order, 'amount'))
+        openAmount = self.fromWei(self.safe_string(order, 'openAmount'), 'ether', baseDecimals)
+        reservedAmount = self.fromWei(self.safe_string(order, 'reservedAmount'), 'ether', baseDecimals)
+        filledAmount = self.fromWei(self.safe_string(order, 'filledAmount'), 'ether', baseDecimals)
+        settledAmount = self.fromWei(self.safe_string(order, 'settledAmount'), 'ether', baseDecimals)
+        confirmedAmount = self.fromWei(self.safe_string(order, 'confirmedAmount'), 'ether', baseDecimals)
+        failedAmount = self.fromWei(self.safe_string(order, 'failedAmount'), 'ether', baseDecimals)
+        deadAmount = self.fromWei(self.safe_string(order, 'deadAmount'), 'ether', baseDecimals)
+        prunedAmount = self.fromWei(self.safe_string(order, 'prunedAmount'), 'ether', baseDecimals)
+        amount = self.fromWei(self.safe_string(order, 'amount'), 'ether', baseDecimals)
         if amount is None:
             amount = self.sum(openAmount, reservedAmount, filledAmount, settledAmount, confirmedAmount, failedAmount, deadAmount, prunedAmount)
         filled = self.sum(filledAmount, settledAmount, confirmedAmount)
@@ -833,24 +928,24 @@ class theocean (Exchange):
         lastTradeTimestamp = None
         timeline = self.safe_value(order, 'timeline')
         trades = None
-        status = 'open'
+        status = None
         if timeline is not None:
             numEvents = len(timeline)
             if numEvents > 0:
-                status = self.safe_string(timeline[numEvents - 1], 'action')
-                status = self.parse_order_status(status)
+                # status = self.parse_order_status(self.safe_string(timeline[numEvents - 1], 'action'))
                 timelineEventsGroupedByAction = self.group_by(timeline, 'action')
+                if 'error' in timelineEventsGroupedByAction:
+                    status = 'failed'
                 if 'placed' in timelineEventsGroupedByAction:
                     placeEvents = self.safe_value(timelineEventsGroupedByAction, 'placed')
                     if amount is None:
-                        amount = self.fromWei(self.safe_float(placeEvents[0], 'amount'))
+                        amount = self.fromWei(self.safe_string(placeEvents[0], 'amount'), 'ether', baseDecimals)
                     timestamp = self.safe_integer(placeEvents[0], 'timestamp')
                     timestamp = timestamp * 1000 if (timestamp is not None) else timestamp
                 else:
                     if 'filled' in timelineEventsGroupedByAction:
                         timestamp = self.safe_integer(timelineEventsGroupedByAction['filled'][0], 'timestamp')
                         timestamp = timestamp * 1000 if (timestamp is not None) else timestamp
-                    type = 'market'
                 if 'filled' in timelineEventsGroupedByAction:
                     fillEvents = self.safe_value(timelineEventsGroupedByAction, 'filled')
                     numFillEvents = len(fillEvents)
@@ -877,7 +972,7 @@ class theocean (Exchange):
             if price is not None:
                 cost = filled * price
         fee = None
-        feeCost = self.fromWei(self.safe_float(order, 'feeAmount'))
+        feeCost = self.safe_string(order, 'feeAmount')
         if feeCost is not None:
             feeOption = self.safe_string(order, 'feeOption')
             feeCurrency = None
@@ -888,10 +983,18 @@ class theocean (Exchange):
                 feeCurrency = 'ZRX'
             else:
                 raise NotSupported(self.id + ' encountered an unsupported order fee option: ' + feeOption)
+            feeDecimals = self.safe_integer(self.options['decimals'], feeCurrency, 18)
             fee = {
-                'feeCost': feeCost,
-                'feeCurrency': feeCurrency,
+                'cost': self.fromWei(feeCost, 'ether', feeDecimals),
+                'currency': feeCurrency,
             }
+        amountPrecision = market['precision']['amount'] if market else 8
+        if remaining is not None:
+            if status is None:
+                status = 'open'
+                rest = remaining - failedAmount - deadAmount - prunedAmount
+                if rest < math.pow(10, -amountPrecision):
+                    status = 'canceled' if (filled < amount) else 'closed'
         result = {
             'info': order,
             'id': id,
@@ -912,12 +1015,20 @@ class theocean (Exchange):
         }
         return result
 
-    async def fetch_order(self, id, symbol=None, params={}):
+    async def fetch_open_order(self, id, symbol=None, params={}):
         method = self.options['fetchOrderMethod']
-        return await getattr(self, method)(id, symbol, params)
+        return await getattr(self, method)(id, symbol, self.extend({
+            'openAmount': 1,
+        }, params))
+
+    async def fetch_closed_order(self, id, symbol=None, params={}):
+        method = self.options['fetchOrderMethod']
+        return await getattr(self, method)(id, symbol, self.extend(params))
 
     async def fetch_order_from_history(self, id, symbol=None, params={}):
-        orders = await self.fetch_orders(symbol, None, None, params)
+        orders = await self.fetch_orders(symbol, None, None, self.extend({
+            'orderHash': id,
+        }, params))
         ordersById = self.index_by(orders, 'id')
         if id in ordersById:
             return ordersById[id]
@@ -962,6 +1073,16 @@ class theocean (Exchange):
         #
         return self.parse_order(response)
 
+    async def fetch_order(self, id, symbol=None, params={}):
+        request = {
+            'orderHash': id,
+        }
+        orders = await self.fetch_orders(symbol, None, None, self.extend(request, params))
+        numOrders = len(orders)
+        if numOrders != 1:
+            raise OrderNotFound(self.id + ' order ' + id + ' not found')
+        return orders[0]
+
     async def fetch_orders(self, symbol=None, since=None, limit=None, params={}):
         await self.load_markets()
         request = {
@@ -979,7 +1100,7 @@ class theocean (Exchange):
             request['baseTokenAddress'] = market['baseId']
             request['quoteTokenAddress'] = market['quoteId']
         if limit is not None:
-            # request['start'] = 0  # offset
+            # request['start'] = 0  # the number of orders to offset from the end
             request['limit'] = limit
         response = await self.privateGetUserHistory(self.extend(request, params))
         #
@@ -1008,6 +1129,16 @@ class theocean (Exchange):
         #
         return self.parse_orders(response, None, since, limit)
 
+    async def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
+        return await self.fetch_orders(symbol, since, limit, self.extend({
+            'openAmount': 1,  # returns open orders with remaining openAmount >= 1
+        }, params))
+
+    async def fetch_closed_orders(self, symbol=None, since=None, limit=None, params={}):
+        return await self.fetch_orders(symbol, since, limit, self.extend({
+            'openAmount': 0,  # returns closed orders with remaining openAmount == 0
+        }, params))
+
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = self.urls['api'] + '/' + self.version + '/' + self.implode_params(path, params)
         query = self.omit(params, self.extract_params(path))
@@ -1034,7 +1165,7 @@ class theocean (Exchange):
                 url += '?' + self.urlencode(query)
         return {'url': url, 'method': method, 'body': body, 'headers': headers}
 
-    def handle_errors(self, httpCode, reason, url, method, headers, body):
+    def handle_errors(self, httpCode, reason, url, method, headers, body, response):
         if not isinstance(body, basestring):
             return  # fallback to default error handler
         if len(body) < 2:
@@ -1044,7 +1175,6 @@ class theocean (Exchange):
         if body == "'Authentication failed'":
             raise AuthenticationError(self.id + ' ' + body)
         if (body[0] == '{') or (body[0] == '['):
-            response = json.loads(body)
             message = self.safe_string(response, 'message')
             if message is not None:
                 #
@@ -1052,20 +1182,16 @@ class theocean (Exchange):
                 # {"message":"Logic validation failed for 'query'","errors":[{"message":"startTime should be between 0 and current date","type":"startTime"}]}
                 # {"message":"Order not found","errors":[]}
                 # {"message":"Orderbook exhausted for intent MARKET_INTENT:8yjjzd8b0e8yjjzd8b0fjjzd8b0g"}
+                # {"message":"Intent validation failed.","errors":[{"message":"Greater than available wallet balance.","type":"walletBaseTokenAmount"}]}
+                # {"message":"Schema validation failed for 'body'","errors":[{"name":"anyOf","argument":["[subschema 0]","[subschema 1]","[subschema 2]"],"message":"is not any of [subschema 0],[subschema 1],[subschema 2]","instance":{"signedTargetOrder":{"error":{"message":"Unsigned target order validation failed.","errors":[{"message":"Greater than available wallet balance.","type":"walletBaseTokenAmount"}]},"maker":"0x1709c02cd7327d391a39a7671af8a91a1ef8a47b","orderHash":"0xda007ea8b5eca71ac96fe4072f7c1209bb151d898a9cc89bbeaa594f0491ee49","ecSignature":{"v":27,"r":"0xb23ce6c4a7b5d51d77e2d00f6d1d472a3b2e72d5b2be1510cfeb122f9366b79e","s":"0x07d274e6d7a00b65fc3026c2f9019215b1e47a5ac4d1f05e03f90550d27109be"}}},"property":"instance"}]}
+                # {"message":"Schema validation failed for 'params'","errors":[{"name":"pattern","argument":"^0x[0-9a-fA-F]{64}$","message":"does not match pattern \"^0x[0-9a-fA-F]{64}$\"","instance":"1","property":"instance.orderHash"}]}
                 #
                 feedback = self.id + ' ' + self.json(response)
-                exceptions = self.exceptions
-                if message in exceptions:
-                    raise exceptions[message](feedback)
-                else:
-                    if message.find('Orderbook exhausted for intent') >= 0:
-                        raise OrderNotFillable(feedback)
-                    raise ExchangeError(feedback)
-
-    async def request(self, path, api='public', method='GET', params={}, headers=None, body=None):
-        response = await self.fetch2(path, api, method, params, headers, body)
-        if not isinstance(response, basestring):
-            raise ExchangeError(self.id + ' returned a non-string response: ' + str(response))
-        if (response[0] == '{' or response[0] == '['):
-            return json.loads(response)
-        return response
+                exact = self.exceptions['exact']
+                if message in exact:
+                    raise exact[message](feedback)
+                broad = self.exceptions['broad']
+                broadKey = self.findBroadlyMatchedKey(broad, body)
+                if broadKey is not None:
+                    raise broad[broadKey](feedback)
+                raise ExchangeError(feedback)  # unknown message
