@@ -126,7 +126,7 @@ class exmo (Exchange):
             },
         })
 
-    async def fetch_markets(self):
+    async def fetch_markets(self, params={}):
         markets = await self.publicGetPairSettings()
         keys = list(markets.keys())
         result = []
