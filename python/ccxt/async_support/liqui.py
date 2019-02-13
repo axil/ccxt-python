@@ -314,7 +314,10 @@ class liqui (Exchange):
             'pair': ids,
         }, params))
         result = {}
-        keys = list(tickers.keys())
+        try:
+            keys = list(tickers.keys())
+        except AttributeError:
+            return result
         for k in range(0, len(keys)):
             id = keys[k]
             ticker = tickers[id]
