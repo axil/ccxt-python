@@ -36,7 +36,7 @@ class bibox (Exchange):
                 'CORS': False,
                 'publicAPI': False,
                 'fetchBalance': True,
-                'fetchCurrencies': True,
+                'fetchCurrencies': False,
                 'fetchDepositAddress': True,
                 'fetchFundingFees': True,
                 'fetchTickers': True,
