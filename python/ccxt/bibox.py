@@ -506,9 +506,9 @@ class bibox (Exchange):
             '1': 'open',  # pending
             '2': 'open',  # part completed
             '3': 'closed',  # completed
-            '4': 'canceled',  # part canceled
+            '4': 'open',  # part canceled
             '5': 'canceled',  # canceled
-            '6': 'canceled',  # canceling
+            '6': 'open',  # canceling
         }
         return self.safe_string(statuses, status, status)
 
